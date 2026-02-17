@@ -8,10 +8,10 @@ export default function Landing({ onPlay, onAdmin }: LandingProps) {
     <div className="relative w-screen h-screen bg-white overflow-hidden select-none flex flex-col items-center justify-center">
       <div className="relative z-10 flex flex-col items-center gap-6">
         <h1 className="text-6xl font-bold font-mono text-center leading-tight">
-          <span className="text-yellow-400">Monad</span>{' '}
-          <span className="text-purple-400">Ball Game</span>
+          <span className="text-yellow-500">Monad</span>{' '}
+          <span className="text-purple-500">Ball Game</span>
         </h1>
-        <p className="text-gray-400 text-sm text-center max-w-md">
+        <p className="text-gray-500 text-sm text-center max-w-md">
           Catch the on-chain balls, earn points, and claim your rewards on Monad Testnet.
         </p>
 
@@ -22,13 +22,13 @@ export default function Landing({ onPlay, onAdmin }: LandingProps) {
           PLAY
         </button>
 
-        <span className="text-gray-600 text-xs mt-4 tracking-widest uppercase">
+        <span className="text-gray-400 text-xs mt-4 tracking-widest uppercase">
           Built on Monad Testnet
         </span>
 
         <button
           onClick={onAdmin}
-          className="mt-6 text-gray-600 hover:text-gray-400 text-xs underline transition-colors"
+          className="mt-6 text-gray-400 hover:text-gray-600 text-xs underline transition-colors"
         >
           Admin Panel
         </button>
