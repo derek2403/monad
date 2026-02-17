@@ -1,18 +1,27 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { JsonRpcProvider, BrowserProvider, Wallet, Contract, Interface, WebSocketProvider, formatEther, Signer } from 'ethers'
 
-const BALLGAME_ADDRESS = '0x5dDbAd38E6312Ab2274612D4f847F3Ca27240921'
+const BALLGAME_ADDRESS = '0xE17722A663E72f876baFe1F73dE6e6e02358Ba65'
+
+const BALL_COUNT = 50
 
 const BALLGAME_ABI = [
   'function currentGameId() view returns (uint256)',
   'function startGame()',
+  'function endGame()',
+  'function regenerateBalls()',
   'function claimBall(uint8 index)',
-  'function getGamePositions(uint256 gameId) view returns (uint16[10] xs, uint16[10] ys)',
-  'function getGameClaims(uint256 gameId) view returns (address[10] claimedBy, uint8 claimedCount)',
+  'function getGamePositions(uint256 gameId) view returns (uint16[50] xs, uint16[50] ys)',
+  'function getGameBallTypes(uint256 gameId) view returns (uint8[50])',
+  'function getGameClaims(uint256 gameId) view returns (address[50] claimedBy, uint8 claimedCount)',
   'function getGameStartTime(uint256 gameId) view returns (uint256)',
   'function isGameActive() view returns (bool)',
-  'event GameStarted(uint256 indexed gameId, uint256 startTime, uint16[10] xs, uint16[10] ys)',
-  'event BallClaimed(uint256 indexed gameId, uint8 index, address player)',
+  'function getScore(address player) view returns (uint256)',
+  'function scores(address) view returns (uint256)',
+  'event GameStarted(uint256 indexed gameId, uint256 startTime, uint16[50] xs, uint16[50] ys, uint8[50] ballTypes)',
+  'event BallClaimed(uint256 indexed gameId, uint8 index, address player, uint8 ballType, uint256 newScore)',
+  'event GameEnded(uint256 indexed gameId, address endedBy)',
+  'event BallsRegenerated(uint256 indexed gameId, uint256 startTime, uint16[50] xs, uint16[50] ys, uint8[50] ballTypes)',
 ]
 
 const BALLGAME_IFACE = new Interface(BALLGAME_ABI)
@@ -29,14 +38,27 @@ type WalletMode = 'none' | 'burner' | 'metamask' | 'auto'
 
 const ENV_PRIVATE_KEY = import.meta.env.VITE_PRIVATE_KEY as string | undefined
 
-const BALL_COLORS = [
-  '#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4',
-  '#3b82f6', '#8b5cf6', '#ec4899', '#f43f5e', '#14b8a6',
-]
+// Ball type: 0=Normal, 1=Special, 2=Bomb
+const BALL_TYPE_COLORS: Record<number, string> = {
+  0: '#3b82f6', // blue - normal
+  1: '#eab308', // gold - special
+  2: '#ef4444', // red - bomb
+}
+const BALL_TYPE_LABELS: Record<number, string> = {
+  0: '',
+  1: '*',
+  2: '!',
+}
+const BALL_TYPE_POINTS: Record<number, string> = {
+  0: '+1',
+  1: '+3',
+  2: '-5',
+}
 
 interface BallState {
   x: number
   y: number
+  ballType: number
   claimed: boolean
   claimedBy: string | null
 }
@@ -47,6 +69,11 @@ interface TxLog {
   txSentAt: number
   txConfirmedAt: number | null
   wsEventAt: number | null
+}
+
+interface LeaderboardEntry {
+  address: string
+  score: number
 }
 
 interface CachedTxParams {
@@ -70,14 +97,24 @@ function createBurnerWallet(): Wallet {
   return new Wallet(wallet.privateKey, rpcProvider)
 }
 
-// clock offset: difference between chain time and local clock
-let clockOffset = 0
+// clock offset: difference between chain time and local clock (ms precision)
+let clockOffsetMs = 0
 async function calibrateClock() {
   try {
-    const block = await rpcProvider.getBlock('latest')
-    if (block) {
-      // block.timestamp is seconds, Date.now() is ms
-      clockOffset = block.timestamp - Math.floor(Date.now() / 1000)
+    const samples: number[] = []
+    for (let i = 0; i < 3; i++) {
+      const before = Date.now()
+      const block = await rpcProvider.getBlock('latest')
+      const after = Date.now()
+      if (block) {
+        const rtt = after - before
+        const localEstimate = before + rtt / 2
+        samples.push(block.timestamp * 1000 - localEstimate)
+      }
+    }
+    if (samples.length > 0) {
+      samples.sort((a, b) => a - b)
+      clockOffsetMs = samples[Math.floor(samples.length / 2)]
     }
   } catch { /* ignore */ }
 }
@@ -93,10 +130,19 @@ function BallGame() {
   const [wsConnected, setWsConnected] = useState(false)
   const [balance, setBalance] = useState<string | null>(null)
   const [txLogs, setTxLogs] = useState<TxLog[]>([])
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([])
+  const [myScore, setMyScore] = useState(0)
+  const [isFalling, setIsFalling] = useState(false)
+  const containerRef = useRef<HTMLDivElement | null>(null)
   const wsProviderRef = useRef<WebSocketProvider | null>(null)
   const pendingTxRef = useRef<TxLog | null>(null)
   const pendingClaimsRef = useRef<Map<number, TxLog>>(new Map())
   const cachedParamsRef = useRef<CachedTxParams | null>(null)
+  // track all known players for leaderboard
+  const knownPlayersRef = useRef<Set<string>>(new Set())
+  // pending new balls from regenerate (shown after falling animation)
+  const pendingNewBallsRef = useRef<{ balls: BallState[], startTime: number } | null>(null)
 
   const [mode, setMode] = useState<WalletMode>(() => {
     return (localStorage.getItem(MODE_KEY) as WalletMode) || 'none'
@@ -158,6 +204,31 @@ function BallGame() {
     }
   }, [address])
 
+  // --- leaderboard: refresh scores for all known players ---
+  const refreshLeaderboard = useCallback(async () => {
+    const players = Array.from(knownPlayersRef.current)
+    if (players.length === 0) return
+    try {
+      const scorePromises = players.map(p => readContract.getScore(p))
+      const scores = await Promise.all(scorePromises)
+      const entries: LeaderboardEntry[] = players
+        .map((addr, i) => ({ address: addr, score: Number(scores[i]) }))
+        .sort((a, b) => b.score - a.score)
+      setLeaderboard(entries)
+    } catch (err) {
+      console.error('Failed to refresh leaderboard:', err)
+    }
+  }, [])
+
+  // fetch my score
+  const fetchMyScore = useCallback(async () => {
+    if (!address) return
+    try {
+      const s = await readContract.getScore(address)
+      setMyScore(Number(s))
+    } catch { /* ignore */ }
+  }, [address])
+
   // --- fetch game state ---
 
   const fetchGameState = useCallback(async () => {
@@ -172,8 +243,9 @@ function BallGame() {
         return
       }
 
-      const [positions, claims, startTime] = await Promise.all([
+      const [positions, ballTypes, claims, startTime] = await Promise.all([
         readContract.getGamePositions(gameIdNum),
+        readContract.getGameBallTypes(gameIdNum),
         readContract.getGameClaims(gameIdNum),
         readContract.getGameStartTime(gameIdNum),
       ])
@@ -182,19 +254,22 @@ function BallGame() {
       const [xs, ys] = positions
       const [claimedBy, claimedCount] = claims
 
+      const isFinished = Number(claimedCount) >= BALL_COUNT
       const newBalls: BallState[] = []
-      for (let i = 0; i < 10; i++) {
+      for (let i = 0; i < BALL_COUNT; i++) {
+        const addr = claimedBy[i]
+        const isClaimed = addr !== '0x0000000000000000000000000000000000000000'
+        if (isClaimed) knownPlayersRef.current.add(addr)
         newBalls.push({
           x: Number(xs[i]) / 10,
           y: Number(ys[i]) / 10,
-          claimed: claimedBy[i] !== '0x0000000000000000000000000000000000000000',
-          claimedBy: claimedBy[i] !== '0x0000000000000000000000000000000000000000'
-            ? claimedBy[i]
-            : null,
+          ballType: Number(ballTypes[i]),
+          claimed: isClaimed || isFinished,
+          claimedBy: isClaimed ? addr : null,
         })
       }
       setBalls(newBalls)
-      setGameActive(Number(claimedCount) < 10)
+      setGameActive(!isFinished)
     } catch (err) {
       console.error('Failed to fetch game state:', err)
     }
@@ -202,13 +277,21 @@ function BallGame() {
 
   useEffect(() => { fetchGameState() }, [fetchGameState])
   useEffect(() => { if (address) fetchBalance() }, [address, fetchBalance])
+  useEffect(() => { if (address) { knownPlayersRef.current.add(address); fetchMyScore() } }, [address, fetchMyScore])
 
   // poll game state as fallback for WS sync
   useEffect(() => {
-    if (!gameActive) return
+    if (!gameActive || isFalling) return
     const interval = setInterval(fetchGameState, 3000)
     return () => clearInterval(interval)
-  }, [gameActive, fetchGameState])
+  }, [gameActive, isFalling, fetchGameState])
+
+  // refresh leaderboard periodically
+  useEffect(() => {
+    refreshLeaderboard()
+    const interval = setInterval(refreshLeaderboard, 5000)
+    return () => clearInterval(interval)
+  }, [refreshLeaderboard])
 
   // auto-detect MetaMask on mount
   useEffect(() => {
@@ -248,7 +331,7 @@ function BallGame() {
 
         const contract = new Contract(BALLGAME_ADDRESS, BALLGAME_ABI, wsProvider)
 
-        contract.on('GameStarted', (gameIdBn, startTimeBn, xs, ys) => {
+        contract.on('GameStarted', (gameIdBn, startTimeBn, xs, ys, ballTypes) => {
           const wsEventAt = performance.now()
           const newGameId = Number(gameIdBn)
           // re-calibrate clock on each new game for tighter sync
@@ -262,10 +345,11 @@ function BallGame() {
           setGameActive(true)
 
           const newBalls: BallState[] = []
-          for (let i = 0; i < 10; i++) {
+          for (let i = 0; i < BALL_COUNT; i++) {
             newBalls.push({
               x: Number(xs[i]) / 10,
               y: Number(ys[i]) / 10,
+              ballType: Number(ballTypes[i]),
               claimed: false,
               claimedBy: null,
             })
@@ -285,9 +369,16 @@ function BallGame() {
           fetchBalance()
         })
 
-        contract.on('BallClaimed', (gameIdBn, indexBn, player) => {
+        contract.on('BallClaimed', (gameIdBn, indexBn, player, ballTypeBn, newScoreBn) => {
           const wsEventAt = performance.now()
           const idx = Number(indexBn)
+          const ballType = Number(ballTypeBn)
+          const newScore = Number(newScoreBn)
+          const typeLabel = ballType === 1 ? 'Special' : ballType === 2 ? 'Bomb' : 'Normal'
+          const pointsLabel = BALL_TYPE_POINTS[ballType]
+
+          // track player for leaderboard
+          knownPlayersRef.current.add(player)
 
           setBalls(prev => {
             const updated = [...prev]
@@ -299,26 +390,89 @@ function BallGame() {
             return updated
           })
 
+          // update leaderboard entry for this player immediately
+          setLeaderboard(prev => {
+            const existing = prev.find(e => e.address.toLowerCase() === player.toLowerCase())
+            let updated: LeaderboardEntry[]
+            if (existing) {
+              updated = prev.map(e => e.address.toLowerCase() === player.toLowerCase() ? { ...e, score: newScore } : e)
+            } else {
+              updated = [...prev, { address: player, score: newScore }]
+            }
+            return updated.sort((a, b) => b.score - a.score)
+          })
+
+          // update my score if it's me
+          if (address && player.toLowerCase() === address.toLowerCase()) {
+            setMyScore(newScore)
+          }
+
           const shortAddr = `${player.slice(0, 6)}...${player.slice(-4)}`
           const pending = pendingClaimsRef.current.get(idx)
           if (pending) {
-            // use on-chain player address (the actual winner), not our wallet
             const log: TxLog = { ...pending, wallet: player, wsEventAt }
-            // don't delete from map yet — RPC .then() still needs it for txConfirmedAt
             pending.wsEventAt = wsEventAt
             setTxLogs(prev => [log, ...prev].slice(0, 20))
-            setStatus(`Ball #${idx} claimed by ${shortAddr}: ${((wsEventAt - pending.txSentAt) / 1000).toFixed(3)}s`)
+            setStatus(`${typeLabel} #${idx} (${pointsLabel}) claimed by ${shortAddr}: ${((wsEventAt - pending.txSentAt) / 1000).toFixed(3)}s → Score: ${newScore}`)
           } else {
             setTxLogs(prev => [{
-              action: `ball #${idx}`,
+              action: `${typeLabel.toLowerCase()} #${idx} (${pointsLabel})`,
               wallet: shortAddr,
               txSentAt: wsEventAt,
               txConfirmedAt: null,
               wsEventAt,
             }, ...prev].slice(0, 20))
-            setStatus(`Ball #${idx} claimed by ${shortAddr}`)
+            setStatus(`${typeLabel} #${idx} (${pointsLabel}) claimed by ${shortAddr} → Score: ${newScore}`)
           }
 
+          fetchBalance()
+        })
+        contract.on('BallsRegenerated', (_gameIdBn, startTimeBn, xs, ys, ballTypes) => {
+          calibrateClock()
+          claimingRef.current.clear()
+          pendingClaimsRef.current.clear()
+
+          const newStartTime = Number(startTimeBn)
+          const newBalls: BallState[] = []
+          for (let i = 0; i < BALL_COUNT; i++) {
+            newBalls.push({
+              x: Number(xs[i]) / 10,
+              y: Number(ys[i]) / 10,
+              ballType: Number(ballTypes[i]),
+              claimed: false,
+              claimedBy: null,
+            })
+          }
+
+          // If not already falling (other clients), start falling now
+          const alreadyFalling = fallingStartRef.current > 0
+          if (!alreadyFalling) {
+            fallingStartRef.current = Date.now()
+            setIsFalling(true)
+            setStatus('Balls falling...')
+          }
+
+          // Show new balls after remaining fall time (2s total)
+          const elapsed = Date.now() - fallingStartRef.current
+          const remaining = Math.max(0, 2000 - elapsed)
+
+          setTimeout(() => {
+            setGameStartTime(newStartTime)
+            setGameActive(true)
+            setIsFalling(false)
+            fallingStartRef.current = 0
+            setBalls(newBalls)
+            pendingNewBallsRef.current = null
+            setStatus('New balls generated!')
+          }, remaining)
+
+          fetchBalance()
+        })
+
+        contract.on('GameEnded', (_gameIdBn, _endedBy) => {
+          setGameActive(false)
+          setBalls(prev => prev.map(b => ({ ...b, claimed: true })))
+          setStatus('Game ended!')
           fetchBalance()
         })
       } catch (err) {
@@ -336,7 +490,7 @@ function BallGame() {
       }
       setWsConnected(false)
     }
-  }, [fetchBalance])
+  }, [fetchBalance, address])
 
   // --- raw tx: sign locally, 1 RPC call, auto-retry on nonce error ---
   const sendRawTx = async (action: string, data: string, gasLimit: bigint = 300000n) => {
@@ -377,7 +531,6 @@ function BallGame() {
       } catch (err: unknown) {
         const msg = ((err as Error)?.message || '') + ((err as { info?: { error?: { message?: string } } })?.info?.error?.message || '')
         if (msg.toLowerCase().includes('nonce')) {
-          // nonce stale — refresh and retry once
           try {
             await refreshCachedParams()
             if (cachedParamsRef.current) {
@@ -413,7 +566,6 @@ function BallGame() {
         }
       }
 
-      // RPC accepted the tx
       const txConfirmedAt = performance.now()
       if (isClaimAction) {
         const match = action.match(/claimBall\((\d+)\)/)
@@ -584,13 +736,57 @@ function BallGame() {
     try {
       if (mode === 'auto' || mode === 'burner') {
         const data = BALLGAME_IFACE.encodeFunctionData('startGame')
-        await sendRawTx('startGame()', data)
+        await sendRawTx('startGame()', data, 1000000n)
       } else {
         await sendMetamaskTx('startGame()', (c) => c.startGame())
       }
     } catch (err) {
       pendingTxRef.current = null
       setStatus(`startGame() failed: ${err}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const callRegenerateBalls = async () => {
+    setLoading(true)
+    fallingStartRef.current = Date.now()
+    setIsFalling(true)
+    setStatus('Balls falling...')
+
+    try {
+      if (mode === 'auto' || mode === 'burner') {
+        const data = BALLGAME_IFACE.encodeFunctionData('regenerateBalls')
+        await sendRawTx('regenerateBalls()', data, 1000000n)
+      } else {
+        await sendMetamaskTx('regenerateBalls()', (c) => c.regenerateBalls())
+      }
+      setStatus('Generating new balls...')
+    } catch (err) {
+      pendingTxRef.current = null
+      setIsFalling(false)
+      fallingStartRef.current = 0
+      setStatus(`regenerateBalls() failed: ${err}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const callEndGame = async () => {
+    setLoading(true)
+    try {
+      if (mode === 'auto' || mode === 'burner') {
+        const data = BALLGAME_IFACE.encodeFunctionData('endGame')
+        await sendRawTx('endGame()', data, 300000n)
+      } else {
+        await sendMetamaskTx('endGame()', (c) => c.endGame())
+      }
+      setGameActive(false)
+      setBalls(prev => prev.map(b => ({ ...b, claimed: true })))
+      setStatus('Game ended!')
+    } catch (err) {
+      pendingTxRef.current = null
+      setStatus(`endGame() failed: ${err}`)
     } finally {
       setLoading(false)
     }
@@ -623,9 +819,32 @@ function BallGame() {
 
   const hasBalance = balance !== null && parseFloat(balance) > 0
 
-  // --- ball animation: each ball floats around its base position ---
+  // --- fullscreen toggle with orientation lock ---
+  const toggleFullscreen = useCallback(async () => {
+    const el = containerRef.current
+    if (!el) return
+    if (!document.fullscreenElement) {
+      try {
+        await el.requestFullscreen()
+        try { await (screen.orientation as any).lock('landscape') } catch { /* unsupported */ }
+      } catch { /* fullscreen denied */ }
+    } else {
+      try { await (screen.orientation as any).unlock() } catch { /* ignore */ }
+      await document.exitFullscreen()
+    }
+  }, [])
+
+  useEffect(() => {
+    const handler = () => setIsFullscreen(!!document.fullscreenElement)
+    document.addEventListener('fullscreenchange', handler)
+    return () => document.removeEventListener('fullscreenchange', handler)
+  }, [])
+
+  // --- ball animation ---
   const [animOffset, setAnimOffset] = useState<{ dx: number; dy: number }[]>([])
   const animRef = useRef<number>(0)
+
+  const fallingStartRef = useRef<number>(0)
 
   useEffect(() => {
     if (balls.length === 0 || !gameActive) {
@@ -634,24 +853,42 @@ function BallGame() {
       return
     }
 
+    if (isFalling && fallingStartRef.current === 0) {
+      fallingStartRef.current = Date.now()
+    }
+    if (!isFalling) {
+      fallingStartRef.current = 0
+    }
+
     const animate = () => {
-      // t = seconds since game started, synced to chain clock
-      const t = (Date.now() / 1000 + clockOffset) - gameStartTime
+      if (isFalling) {
+        const elapsed = (Date.now() - fallingStartRef.current) / 1000
+        const offsets = balls.map((ball, i) => {
+          const delay = (i % 5) * 0.08
+          const t = Math.max(0, elapsed - delay)
+          const gravity = 200
+          const fallDist = 0.5 * gravity * t * t
+          const dy = Math.min(fallDist, 120 - ball.y)
+          return { dx: 0, dy }
+        })
+        setAnimOffset(offsets)
+        animRef.current = requestAnimationFrame(animate)
+        return
+      }
+
+      const t = ((Date.now() + clockOffsetMs) / 1000) - gameStartTime
 
       const offsets = balls.map((ball, i) => {
-        // Fruit-ninja style: parabolic arc launching from bottom
-        const cycleDuration = 3.0 + (i % 4) * 0.5     // 3.0–4.5s per cycle
-        const launchDelay = (i % 5) * 0.4              // stagger 0–1.6s
+        const cycleDuration = 3.0 + (i % 4) * 0.5
+        const launchDelay = (i % 5) * 0.4
         const elapsed = t - launchDelay
         if (elapsed < 0) return { dx: 0, dy: 110 - ball.y }
 
-        const phase = (elapsed % cycleDuration) / cycleDuration  // 0→1
-        // parabola: 4*p*(1-p) peaks at 1.0 when p=0.5
-        const peakHeight = 75 + (i % 3) * 15           // 75–105% travel upward
-        const baseY = 110                               // starts below screen
+        const phase = (elapsed % cycleDuration) / cycleDuration
+        const peakHeight = 75 + (i % 3) * 15
+        const baseY = 110
         const targetY = baseY - peakHeight * 4 * phase * (1 - phase)
 
-        // slight horizontal drift, deterministic from chain time
         const dx = Math.sin(elapsed * 0.6 + i * 2.0) * 2.5
         const dy = targetY - ball.y
 
@@ -663,97 +900,191 @@ function BallGame() {
 
     animRef.current = requestAnimationFrame(animate)
     return () => cancelAnimationFrame(animRef.current)
-  }, [balls, gameActive, gameStartTime])
+  }, [balls, gameActive, gameStartTime, isFalling])
 
   return (
-    <div style={{ padding: '2rem', maxWidth: '800px', margin: '0 auto', textAlign: 'center' }}>
-      <h1>Monad Ball Game</h1>
-      <p style={{ color: '#888', fontSize: '0.85rem' }}>
-        Contract: <code>{BALLGAME_ADDRESS}</code>
-      </p>
-      <p style={{ fontSize: '0.75rem', color: wsConnected ? '#4ade80' : '#f87171' }}>
-        {wsConnected ? 'Live updates via WebSocket' : 'WebSocket disconnected'}
-      </p>
+    <div
+      ref={containerRef}
+      style={{
+        padding: isFullscreen ? 0 : '2rem',
+        maxWidth: isFullscreen ? '100%' : '800px',
+        margin: '0 auto',
+        textAlign: 'center',
+        backgroundColor: isFullscreen ? '#1a1a2e' : undefined,
+        height: isFullscreen ? '100vh' : undefined,
+        overflow: 'hidden',
+        position: 'relative',
+      }}
+    >
+      {!isFullscreen && (
+        <>
+          <h1>Monad Ball Game</h1>
+          <p style={{ color: '#888', fontSize: '0.85rem' }}>
+            Contract: <code>{BALLGAME_ADDRESS}</code>
+          </p>
+          <p style={{ fontSize: '0.75rem', color: wsConnected ? '#4ade80' : '#f87171' }}>
+            {wsConnected ? 'Live updates via WebSocket' : 'WebSocket disconnected'}
+          </p>
+          {isConnected && (
+            <p style={{ fontSize: '0.9rem', margin: '0.5rem 0', color: '#eab308' }}>
+              Your Score: <strong>{myScore}</strong> pts
+            </p>
+          )}
+        </>
+      )}
 
       {/* Wallet selection */}
-      <div style={{ margin: '1rem 0', padding: '1rem', borderRadius: '8px', border: '1px solid #333' }}>
-        {mode === 'none' ? (
-          <>
-            <p style={{ fontSize: '0.85rem', color: '#888', margin: '0 0 1rem' }}>
-              Choose a wallet to start playing
-            </p>
-            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-              {ENV_PRIVATE_KEY && (
-                <button onClick={() => { localStorage.setItem(MODE_KEY, 'auto'); setMode('auto'); setStatus('Private key wallet connected') }}>
-                  Private Key
+      {!isFullscreen && (
+        <div style={{ margin: '1rem 0', padding: '1rem', borderRadius: '8px', border: '1px solid #333' }}>
+          {mode === 'none' ? (
+            <>
+              <p style={{ fontSize: '0.85rem', color: '#888', margin: '0 0 1rem' }}>
+                Choose a wallet to start playing
+              </p>
+              <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+                {ENV_PRIVATE_KEY && (
+                  <button onClick={() => { localStorage.setItem(MODE_KEY, 'auto'); setMode('auto'); setStatus('Private key wallet connected') }}>
+                    Private Key
+                  </button>
+                )}
+                <button onClick={selectBurner}>Burner</button>
+                <button onClick={selectMetamask}>MetaMask</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <span style={{ fontSize: '0.75rem', color: '#888' }}>
+                  {mode === 'auto' ? 'Private Key' : mode === 'burner' ? 'Burner' : 'MetaMask'}
+                  {(mode === 'auto' || mode === 'burner') && ' (raw tx)'}
+                </span>
+                <button onClick={disconnect} style={{ fontSize: '0.7rem', padding: '0.2em 0.6em' }}>
+                  Disconnect
+                </button>
+              </div>
+              <p style={{ fontSize: '0.8rem', wordBreak: 'break-all' }}>
+                <code>{address}</code>
+              </p>
+              <p style={{ fontSize: '0.85rem', margin: '0.5rem 0' }}>
+                Balance: <strong>{balance ?? '...'} MON</strong>
+              </p>
+              {!hasBalance && (
+                <p style={{ fontSize: '0.75rem', color: '#f87171' }}>
+                  Send testnet MON to the address above to start playing
+                </p>
+              )}
+              {mode === 'burner' && (
+                <button onClick={generateNewBurner} style={{ fontSize: '0.75rem', padding: '0.3em 0.8em', marginTop: '0.5rem' }}>
+                  Generate New Wallet
                 </button>
               )}
-              <button onClick={selectBurner}>Burner</button>
-              <button onClick={selectMetamask}>MetaMask</button>
-            </div>
-          </>
-        ) : (
-          <>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-              <span style={{ fontSize: '0.75rem', color: '#888' }}>
-                {mode === 'auto' ? 'Private Key' : mode === 'burner' ? 'Burner' : 'MetaMask'}
-                {(mode === 'auto' || mode === 'burner') && ' (raw tx)'}
-              </span>
-              <button onClick={disconnect} style={{ fontSize: '0.7rem', padding: '0.2em 0.6em' }}>
-                Disconnect
-              </button>
-            </div>
-            <p style={{ fontSize: '0.8rem', wordBreak: 'break-all' }}>
-              <code>{address}</code>
-            </p>
-            <p style={{ fontSize: '0.85rem', margin: '0.5rem 0' }}>
-              Balance: <strong>{balance ?? '...'} MON</strong>
-            </p>
-            {!hasBalance && (
-              <p style={{ fontSize: '0.75rem', color: '#f87171' }}>
-                Send testnet MON to the address above to start playing
-              </p>
-            )}
-            {mode === 'burner' && (
-              <button onClick={generateNewBurner} style={{ fontSize: '0.75rem', padding: '0.3em 0.8em', marginTop: '0.5rem' }}>
-                Generate New Wallet
-              </button>
-            )}
-          </>
-        )}
-      </div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Game area */}
-      <div style={{ margin: '1rem 0' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-          <span style={{ fontSize: '0.85rem', color: '#888' }}>
-            {gameId > 0 ? `Game #${gameId}` : 'No games yet'}
-            {gameActive && ' (active)'}
-            {gameId > 0 && !gameActive && ' (finished)'}
-          </span>
-          <button
-            onClick={callStartGame}
-            disabled={loading || !isConnected || !hasBalance || gameActive}
-          >
-            {gameActive ? 'Game in Progress' : 'Start New Game'}
-          </button>
-        </div>
+      <div style={{ margin: isFullscreen ? 0 : '1rem 0', height: isFullscreen ? '100%' : undefined }}>
+        {!isFullscreen && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+            <span style={{ fontSize: '0.85rem', color: '#888' }}>
+              {gameId > 0 ? `Game #${gameId}` : 'No games yet'}
+              {gameActive && ' (active)'}
+              {gameId > 0 && !gameActive && ' (finished)'}
+            </span>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button
+                onClick={callStartGame}
+                disabled={loading || !isConnected || !hasBalance || gameActive}
+              >
+                {gameActive ? 'Game in Progress' : 'Start New Game'}
+              </button>
+              {gameActive && (
+                <button
+                  onClick={callRegenerateBalls}
+                  disabled={loading || !isConnected || !hasBalance || isFalling}
+                  style={{ backgroundColor: '#8b5cf6', borderColor: '#7c3aed' }}
+                >
+                  {isFalling ? 'Regenerating...' : 'New Balls'}
+                </button>
+              )}
+              {gameActive && (
+                <button
+                  onClick={callEndGame}
+                  disabled={loading || !isConnected || !hasBalance}
+                  style={{ backgroundColor: '#ef4444', borderColor: '#dc2626' }}
+                >
+                  End Game
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Ball type legend */}
+        {!isFullscreen && gameActive && (
+          <div style={{ display: 'flex', justifyContent: 'center', gap: '1.5rem', marginBottom: '0.5rem', fontSize: '0.75rem' }}>
+            <span><span style={{ color: BALL_TYPE_COLORS[0] }}>&#9679;</span> Normal (+1pt)</span>
+            <span><span style={{ color: BALL_TYPE_COLORS[1] }}>&#9733;</span> Special (+3pt)</span>
+            <span><span style={{ color: BALL_TYPE_COLORS[2] }}>&#9679;</span> Bomb (-5pt)</span>
+          </div>
+        )}
 
         {/* Ball field */}
         <div style={{
           position: 'relative',
           width: '100%',
-          height: '500px',
-          border: '1px solid #333',
-          borderRadius: '12px',
+          height: isFullscreen ? '100vh' : '500px',
+          border: isFullscreen ? 'none' : '1px solid #333',
+          borderRadius: isFullscreen ? 0 : '12px',
           backgroundColor: '#1a1a2e',
           overflow: 'hidden',
         }}>
+          <button
+            onClick={toggleFullscreen}
+            style={{
+              position: 'absolute',
+              top: '0.5rem',
+              right: '0.5rem',
+              background: 'rgba(255,255,255,0.15)',
+              border: '1px solid rgba(255,255,255,0.25)',
+              borderRadius: '6px',
+              color: '#fff',
+              padding: '0.3em 0.7em',
+              fontSize: '0.75rem',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              zIndex: 10,
+              touchAction: 'manipulation',
+            }}
+          >
+            {isFullscreen ? 'Exit' : 'Fullscreen'}
+          </button>
+
+          {/* Score overlay in fullscreen */}
+          {isFullscreen && isConnected && (
+            <div style={{
+              position: 'absolute',
+              top: '0.5rem',
+              left: '0.5rem',
+              color: '#eab308',
+              fontSize: '1rem',
+              fontWeight: 'bold',
+              zIndex: 10,
+              textShadow: '0 0 8px rgba(0,0,0,0.8)',
+            }}>
+              Score: {myScore}
+            </div>
+          )}
+
           {balls.map((ball, i) => {
             if (ball.claimed) return null
             const offset = animOffset[i] || { dx: 0, dy: 0 }
             const bx = ball.x + offset.dx
             const by = ball.y + offset.dy
+            const color = BALL_TYPE_COLORS[ball.ballType] ?? BALL_TYPE_COLORS[0]
+            const isBomb = ball.ballType === 2
+            const isSpecial = ball.ballType === 1
             return (
               <button
                 key={i}
@@ -764,23 +1095,30 @@ function BallGame() {
                   left: `${bx}%`,
                   top: `${by}%`,
                   transform: 'translate(-50%, -50%)',
-                  width: '48px',
-                  height: '48px',
+                  width: isBomb ? '38px' : isSpecial ? '36px' : '32px',
+                  height: isBomb ? '38px' : isSpecial ? '36px' : '32px',
                   borderRadius: '50%',
-                  border: '2px solid rgba(255,255,255,0.3)',
-                  backgroundColor: BALL_COLORS[i],
+                  border: isSpecial ? '2px solid #fde047' : isBomb ? '2px solid #fca5a5' : '2px solid rgba(255,255,255,0.3)',
+                  backgroundColor: color,
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  fontSize: '0.85rem',
+                  fontSize: isSpecial ? '0.85rem' : isBomb ? '0.9rem' : '0.7rem',
                   fontWeight: 'bold',
                   color: '#fff',
                   padding: 0,
-                  boxShadow: `0 0 12px ${BALL_COLORS[i]}88`,
+                  boxShadow: isSpecial
+                    ? `0 0 16px #eab30888, 0 0 30px #eab30844`
+                    : isBomb
+                    ? `0 0 16px #ef444488, 0 0 30px #ef444444`
+                    : `0 0 12px ${color}88`,
+                  touchAction: 'manipulation',
+                  WebkitTapHighlightColor: 'transparent',
+                  userSelect: 'none',
                 }}
               >
-                {i}
+                {isBomb ? BALL_TYPE_POINTS[2] : isSpecial ? BALL_TYPE_LABELS[1] : i}
               </button>
             )
           })}
@@ -813,12 +1151,48 @@ function BallGame() {
         </div>
       </div>
 
-      {status && (
+      {!isFullscreen && status && (
         <p style={{ marginTop: '1rem', fontSize: '0.85rem', color: '#aaa' }}>{status}</p>
       )}
 
+      {/* Leaderboard */}
+      {!isFullscreen && leaderboard.length > 0 && (
+        <div style={{ marginTop: '2rem', textAlign: 'left' }}>
+          <h3 style={{ fontSize: '1rem', marginBottom: '0.5rem' }}>Leaderboard</h3>
+          <div style={{ fontSize: '0.8rem', fontFamily: 'monospace' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '0.5fr 2fr 1fr', gap: '0.25rem', padding: '0.5rem', borderBottom: '1px solid #333', color: '#888' }}>
+              <span>#</span>
+              <span>Player</span>
+              <span>Score</span>
+            </div>
+            {leaderboard.map((entry, i) => {
+              const shortAddr = `${entry.address.slice(0, 6)}...${entry.address.slice(-4)}`
+              const isMe = address && entry.address.toLowerCase() === address.toLowerCase()
+              return (
+                <div key={entry.address} style={{
+                  display: 'grid',
+                  gridTemplateColumns: '0.5fr 2fr 1fr',
+                  gap: '0.25rem',
+                  padding: '0.5rem',
+                  borderBottom: '1px solid #222',
+                  backgroundColor: isMe ? 'rgba(234, 179, 8, 0.1)' : undefined,
+                }}>
+                  <span style={{ color: i === 0 ? '#eab308' : i === 1 ? '#94a3b8' : i === 2 ? '#cd7c32' : '#888' }}>
+                    {i + 1}
+                  </span>
+                  <span style={{ color: isMe ? '#eab308' : '#e2e8f0' }}>
+                    {shortAddr} {isMe ? '(you)' : ''}
+                  </span>
+                  <span style={{ color: '#4ade80', fontWeight: 'bold' }}>{entry.score} pts</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Speed log */}
-      {txLogs.length > 0 && (
+      {!isFullscreen && txLogs.length > 0 && (
         <div style={{ marginTop: '2rem', textAlign: 'left' }}>
           <h3 style={{ fontSize: '1rem', marginBottom: '0.5rem' }}>Speed Log</h3>
           <div style={{ fontSize: '0.75rem', fontFamily: 'monospace' }}>
