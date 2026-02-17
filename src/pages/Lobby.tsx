@@ -136,24 +136,24 @@ export default function Lobby({ onGameStart }: LobbyProps) {
 
 
   return (
-    <div className="relative w-screen h-screen bg-[#0a0a1a] overflow-hidden select-none flex">
+    <div className="relative w-screen h-screen bg-white overflow-hidden select-none flex">
       {/* Left side: Lobby info */}
       <div className="flex-1 flex flex-col items-center justify-center px-8">
         <div className="max-w-md w-full flex flex-col items-center gap-6">
           <h1 className="text-4xl font-bold font-mono text-center">
-            <span className="text-yellow-400">Game</span>{' '}
-            <span className="text-purple-400">Lobby</span>
+            <span className="text-yellow-500">Game</span>{' '}
+            <span className="text-purple-500">Lobby</span>
           </h1>
 
           {/* Wallet card */}
-          <div className="w-full bg-black/40 border border-white/10 rounded-2xl p-6 backdrop-blur-md">
-            <div className="text-[10px] font-semibold tracking-[0.18em] uppercase text-gray-400 mb-3">Your Burner Wallet</div>
-            <div className="text-white/80 text-sm font-mono break-all bg-black/30 rounded-lg p-3 mb-4">
+          <div className="w-full bg-gray-50 border border-gray-200 rounded-2xl p-6">
+            <div className="text-[10px] font-semibold tracking-[0.18em] uppercase text-gray-500 mb-3">Your Burner Wallet</div>
+            <div className="text-gray-800 text-sm font-mono break-all bg-gray-100 rounded-lg p-3 mb-4">
               {wallet?.address ?? 'Loading...'}
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-gray-400 text-xs">Balance</span>
-              <span className="text-green-400 font-mono font-bold text-lg">
+              <span className="text-gray-500 text-xs">Balance</span>
+              <span className="text-green-600 font-mono font-bold text-lg">
                 {balance ? `${parseFloat(balance).toFixed(4)} MON` : '...'}
               </span>
             </div>
@@ -161,11 +161,11 @@ export default function Lobby({ onGameStart }: LobbyProps) {
 
           {/* Status */}
           <div className="text-center">
-            <p className="text-gray-300 text-sm">{status}</p>
+            <p className="text-gray-600 text-sm">{status}</p>
             {waitingForGame && (
               <div className="mt-4 flex items-center justify-center gap-2">
-                <div className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse" />
-                <span className="text-yellow-400 text-sm font-semibold">Waiting for admin to start the game...</span>
+                <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse" />
+                <span className="text-yellow-600 text-sm font-semibold">Waiting for admin to start the game...</span>
               </div>
             )}
           </div>
@@ -173,21 +173,20 @@ export default function Lobby({ onGameStart }: LobbyProps) {
       </div>
 
       {/* Right side: Rules image */}
-      <div className="w-[400px] flex items-center justify-center p-8 border-l border-white/5">
-        <div className="w-full h-full rounded-2xl overflow-hidden bg-black/30 border border-white/10 flex items-center justify-center">
+      <div className="w-[400px] flex items-center justify-center p-8 border-l border-gray-200">
+        <div className="w-full h-full rounded-2xl overflow-hidden bg-gray-50 border border-gray-200 flex items-center justify-center">
           <img
             src="/rules.png"
             alt="Game Rules"
             className="w-full h-full object-contain p-4"
             onError={(e) => {
-              // Fallback if rules.png doesn't exist yet
               const target = e.target as HTMLImageElement
               target.style.display = 'none'
               target.parentElement!.innerHTML = `
                 <div class="text-center p-8">
                   <div class="text-2xl mb-4">📋</div>
-                  <h3 class="text-white font-bold text-lg mb-4">Game Rules</h3>
-                  <div class="text-gray-400 text-sm text-left space-y-2">
+                  <h3 class="text-gray-800 font-bold text-lg mb-4">Game Rules</h3>
+                  <div class="text-gray-600 text-sm text-left space-y-2">
                     <p>🔵 Normal balls = +1 point</p>
                     <p>⭐ Special balls = +3 points</p>
                     <p>💣 Bomb balls = -5 points</p>

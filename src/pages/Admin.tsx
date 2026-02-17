@@ -162,46 +162,46 @@ export default function Admin({ onBack }: AdminProps) {
 
   if (!wallet) {
     return (
-      <div className="w-screen h-screen bg-[#0a0a1a] flex items-center justify-center">
+      <div className="w-screen h-screen bg-white flex items-center justify-center">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-red-400 mb-4">No Admin Key</h1>
-          <p className="text-gray-400 text-sm mb-6">Set VITE_PRIVATE_KEY in your .env file to use the admin panel.</p>
-          <button onClick={onBack} className="text-gray-500 hover:text-white text-sm underline">Back</button>
+          <h1 className="text-2xl font-bold text-red-500 mb-4">No Admin Key</h1>
+          <p className="text-gray-500 text-sm mb-6">Set VITE_PRIVATE_KEY in your .env file to use the admin panel.</p>
+          <button onClick={onBack} className="text-gray-500 hover:text-gray-800 text-sm underline">Back</button>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="w-screen h-screen bg-[#0a0a1a] overflow-hidden select-none flex flex-col items-center justify-center px-8">
+    <div className="w-screen h-screen bg-white overflow-hidden select-none flex flex-col items-center justify-center px-8">
       <div className="relative z-10 flex flex-col items-center gap-6 w-full max-w-lg">
-        <div className="text-[11px] font-semibold tracking-[0.25em] uppercase text-gray-400">Admin Panel</div>
-        <h1 className="text-4xl font-bold font-mono text-purple-400">GAME CONTROL</h1>
+        <div className="text-[11px] font-semibold tracking-[0.25em] uppercase text-gray-500">Admin Panel</div>
+        <h1 className="text-4xl font-bold font-mono text-purple-500">GAME CONTROL</h1>
 
         {/* Status card */}
-        <div className="w-full bg-black/40 border border-white/10 rounded-2xl p-5 backdrop-blur-md">
+        <div className="w-full bg-gray-50 border border-gray-200 rounded-2xl p-5">
           <div className="flex justify-between items-center mb-3">
-            <span className="text-gray-400 text-xs uppercase tracking-widest">Contract Status</span>
-            <div className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-green-400' : 'bg-red-400'}`} />
+            <span className="text-gray-500 text-xs uppercase tracking-widest">Contract Status</span>
+            <div className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-green-500' : 'bg-red-500'}`} />
           </div>
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
-              <span className="text-gray-500 text-xs">Game ID</span>
-              <div className="text-white font-mono font-bold text-lg">{gameId}</div>
+              <span className="text-gray-400 text-xs">Game ID</span>
+              <div className="text-gray-800 font-mono font-bold text-lg">{gameId}</div>
             </div>
             <div>
-              <span className="text-gray-500 text-xs">Status</span>
-              <div className={`font-bold text-lg ${gameActive ? 'text-green-400' : 'text-gray-500'}`}>
+              <span className="text-gray-400 text-xs">Status</span>
+              <div className={`font-bold text-lg ${gameActive ? 'text-green-600' : 'text-gray-400'}`}>
                 {gameActive ? 'ACTIVE' : 'INACTIVE'}
               </div>
             </div>
             <div>
-              <span className="text-gray-500 text-xs">Balls Claimed</span>
-              <div className="text-white font-mono font-bold text-lg">{claimedCount} / 50</div>
+              <span className="text-gray-400 text-xs">Balls Claimed</span>
+              <div className="text-gray-800 font-mono font-bold text-lg">{claimedCount} / 50</div>
             </div>
             <div>
-              <span className="text-gray-500 text-xs">Admin Wallet</span>
-              <div className="text-white/60 font-mono text-xs truncate">{wallet.address.slice(0, 10)}...</div>
+              <span className="text-gray-400 text-xs">Admin Wallet</span>
+              <div className="text-gray-500 font-mono text-xs truncate">{wallet.address.slice(0, 10)}...</div>
             </div>
           </div>
         </div>
@@ -211,7 +211,7 @@ export default function Admin({ onBack }: AdminProps) {
           <button
             onClick={handleStartGame}
             disabled={loading || gameActive}
-            className="w-full bg-green-600 hover:bg-green-500 disabled:bg-green-900 disabled:opacity-50 text-white text-lg font-bold py-3.5 rounded-2xl transition-all shadow-lg shadow-green-500/20 disabled:shadow-none"
+            className="w-full bg-green-600 hover:bg-green-500 disabled:bg-gray-300 disabled:text-gray-500 text-white text-lg font-bold py-3.5 rounded-2xl transition-all shadow-lg shadow-green-500/20 disabled:shadow-none"
           >
             {gameActive ? 'GAME IN PROGRESS' : 'START GAME'}
           </button>
@@ -220,14 +220,14 @@ export default function Admin({ onBack }: AdminProps) {
             <button
               onClick={handleRegenerate}
               disabled={loading || !gameActive}
-              className="flex-1 bg-purple-600 hover:bg-purple-500 disabled:bg-purple-900 disabled:opacity-50 text-white font-bold py-3 rounded-2xl transition-all"
+              className="flex-1 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-300 disabled:text-gray-500 text-white font-bold py-3 rounded-2xl transition-all"
             >
               REGENERATE BALLS
             </button>
             <button
               onClick={handleEndGame}
               disabled={loading || !gameActive}
-              className="flex-1 bg-red-600 hover:bg-red-500 disabled:bg-red-900 disabled:opacity-50 text-white font-bold py-3 rounded-2xl transition-all"
+              className="flex-1 bg-red-600 hover:bg-red-500 disabled:bg-gray-300 disabled:text-gray-500 text-white font-bold py-3 rounded-2xl transition-all"
             >
               END GAME
             </button>
@@ -236,16 +236,16 @@ export default function Admin({ onBack }: AdminProps) {
 
         {/* Status text */}
         {status && (
-          <div className="text-sm text-gray-400 text-center">{status}</div>
+          <div className="text-sm text-gray-500 text-center">{status}</div>
         )}
 
         {/* Live log */}
         {logs.length > 0 && (
-          <div className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 backdrop-blur-md max-h-[25vh] overflow-y-auto">
-            <div className="text-[10px] font-semibold tracking-[0.18em] uppercase text-gray-400 mb-2">Live Log</div>
+          <div className="w-full bg-gray-50 border border-gray-200 rounded-2xl p-4 max-h-[25vh] overflow-y-auto">
+            <div className="text-[10px] font-semibold tracking-[0.18em] uppercase text-gray-500 mb-2">Live Log</div>
             <div className="space-y-1">
               {logs.map((log, i) => (
-                <div key={i} className="text-xs text-gray-300 font-mono">{log}</div>
+                <div key={i} className="text-xs text-gray-600 font-mono">{log}</div>
               ))}
             </div>
           </div>
@@ -253,7 +253,7 @@ export default function Admin({ onBack }: AdminProps) {
 
         <button
           onClick={onBack}
-          className="mt-2 text-gray-500 hover:text-white text-sm underline transition-colors"
+          className="mt-2 text-gray-500 hover:text-gray-800 text-sm underline transition-colors"
         >
           Back to Home
         </button>
