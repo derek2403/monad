@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
 import { Wallet, JsonRpcProvider } from 'ethers'
-import { useNavigate } from 'react-router-dom'
 import {
   Button,
   Card,
@@ -94,8 +93,11 @@ function generateWallet(): { address: string; privateKey: string } {
   return { address: w.address, privateKey: w.privateKey }
 }
 
-export default function WalletExport() {
-  const navigate = useNavigate()
+interface WalletExportProps {
+  onDone?: () => void
+}
+
+export default function WalletExport({ onDone }: WalletExportProps) {
   const { isOpen, onOpen, onClose } = useDisclosure()
   const [wallet, setWallet] = useState<{ address: string; privateKey: string } | null>(null)
   const [revealed, setRevealed] = useState(false)
@@ -348,7 +350,7 @@ export default function WalletExport() {
           variant="bordered"
           className="border-white/10 text-white"
           startContent={<ArrowLeftIcon />}
-          onPress={() => navigate('/Landing')}
+          onPress={() => onDone?.()}
         >
           BACK TO HOME
         </Button>
