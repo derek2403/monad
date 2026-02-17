@@ -1,13 +1,15 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { JsonRpcProvider, BrowserProvider, Wallet, Contract, Interface, WebSocketProvider, formatEther, Signer } from 'ethers'
 
-const BALLGAME_ADDRESS = '0xcd03Cf204057882d3E54142D0E17322F77f6Cc4C'
+const BALLGAME_ADDRESS = '0xE17722A663E72f876baFe1F73dE6e6e02358Ba65'
 
 const BALL_COUNT = 50
 
 const BALLGAME_ABI = [
   'function currentGameId() view returns (uint256)',
   'function startGame()',
+  'function endGame()',
+  'function regenerateBalls()',
   'function claimBall(uint8 index)',
   'function getGamePositions(uint256 gameId) view returns (uint16[50] xs, uint16[50] ys)',
   'function getGameBallTypes(uint256 gameId) view returns (uint8[50])',
@@ -18,6 +20,8 @@ const BALLGAME_ABI = [
   'function scores(address) view returns (uint256)',
   'event GameStarted(uint256 indexed gameId, uint256 startTime, uint16[50] xs, uint16[50] ys, uint8[50] ballTypes)',
   'event BallClaimed(uint256 indexed gameId, uint8 index, address player, uint8 ballType, uint256 newScore)',
+  'event GameEnded(uint256 indexed gameId, address endedBy)',
+  'event BallsRegenerated(uint256 indexed gameId, uint256 startTime, uint16[50] xs, uint16[50] ys, uint8[50] ballTypes)',
 ]
 
 const BALLGAME_IFACE = new Interface(BALLGAME_ABI)
@@ -93,13 +97,24 @@ function createBurnerWallet(): Wallet {
   return new Wallet(wallet.privateKey, rpcProvider)
 }
 
-// clock offset: difference between chain time and local clock
-let clockOffset = 0
+// clock offset: difference between chain time and local clock (ms precision)
+let clockOffsetMs = 0
 async function calibrateClock() {
   try {
-    const block = await rpcProvider.getBlock('latest')
-    if (block) {
-      clockOffset = block.timestamp - Math.floor(Date.now() / 1000)
+    const samples: number[] = []
+    for (let i = 0; i < 3; i++) {
+      const before = Date.now()
+      const block = await rpcProvider.getBlock('latest')
+      const after = Date.now()
+      if (block) {
+        const rtt = after - before
+        const localEstimate = before + rtt / 2
+        samples.push(block.timestamp * 1000 - localEstimate)
+      }
+    }
+    if (samples.length > 0) {
+      samples.sort((a, b) => a - b)
+      clockOffsetMs = samples[Math.floor(samples.length / 2)]
     }
   } catch { /* ignore */ }
 }
@@ -118,6 +133,7 @@ function BallGame() {
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([])
   const [myScore, setMyScore] = useState(0)
+  const [isFalling, setIsFalling] = useState(false)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const wsProviderRef = useRef<WebSocketProvider | null>(null)
   const pendingTxRef = useRef<TxLog | null>(null)
@@ -125,6 +141,8 @@ function BallGame() {
   const cachedParamsRef = useRef<CachedTxParams | null>(null)
   // track all known players for leaderboard
   const knownPlayersRef = useRef<Set<string>>(new Set())
+  // pending new balls from regenerate (shown after falling animation)
+  const pendingNewBallsRef = useRef<{ balls: BallState[], startTime: number } | null>(null)
 
   const [mode, setMode] = useState<WalletMode>(() => {
     return (localStorage.getItem(MODE_KEY) as WalletMode) || 'none'
@@ -236,6 +254,7 @@ function BallGame() {
       const [xs, ys] = positions
       const [claimedBy, claimedCount] = claims
 
+      const isFinished = Number(claimedCount) >= BALL_COUNT
       const newBalls: BallState[] = []
       for (let i = 0; i < BALL_COUNT; i++) {
         const addr = claimedBy[i]
@@ -245,12 +264,12 @@ function BallGame() {
           x: Number(xs[i]) / 10,
           y: Number(ys[i]) / 10,
           ballType: Number(ballTypes[i]),
-          claimed: isClaimed,
+          claimed: isClaimed || isFinished,
           claimedBy: isClaimed ? addr : null,
         })
       }
       setBalls(newBalls)
-      setGameActive(Number(claimedCount) < BALL_COUNT)
+      setGameActive(!isFinished)
     } catch (err) {
       console.error('Failed to fetch game state:', err)
     }
@@ -262,10 +281,10 @@ function BallGame() {
 
   // poll game state as fallback for WS sync
   useEffect(() => {
-    if (!gameActive) return
+    if (!gameActive || isFalling) return
     const interval = setInterval(fetchGameState, 3000)
     return () => clearInterval(interval)
-  }, [gameActive, fetchGameState])
+  }, [gameActive, isFalling, fetchGameState])
 
   // refresh leaderboard periodically
   useEffect(() => {
@@ -406,6 +425,54 @@ function BallGame() {
             setStatus(`${typeLabel} #${idx} (${pointsLabel}) claimed by ${shortAddr} → Score: ${newScore}`)
           }
 
+          fetchBalance()
+        })
+        contract.on('BallsRegenerated', (_gameIdBn, startTimeBn, xs, ys, ballTypes) => {
+          calibrateClock()
+          claimingRef.current.clear()
+          pendingClaimsRef.current.clear()
+
+          const newStartTime = Number(startTimeBn)
+          const newBalls: BallState[] = []
+          for (let i = 0; i < BALL_COUNT; i++) {
+            newBalls.push({
+              x: Number(xs[i]) / 10,
+              y: Number(ys[i]) / 10,
+              ballType: Number(ballTypes[i]),
+              claimed: false,
+              claimedBy: null,
+            })
+          }
+
+          // If not already falling (other clients), start falling now
+          const alreadyFalling = fallingStartRef.current > 0
+          if (!alreadyFalling) {
+            fallingStartRef.current = Date.now()
+            setIsFalling(true)
+            setStatus('Balls falling...')
+          }
+
+          // Show new balls after remaining fall time (2s total)
+          const elapsed = Date.now() - fallingStartRef.current
+          const remaining = Math.max(0, 2000 - elapsed)
+
+          setTimeout(() => {
+            setGameStartTime(newStartTime)
+            setGameActive(true)
+            setIsFalling(false)
+            fallingStartRef.current = 0
+            setBalls(newBalls)
+            pendingNewBallsRef.current = null
+            setStatus('New balls generated!')
+          }, remaining)
+
+          fetchBalance()
+        })
+
+        contract.on('GameEnded', (_gameIdBn, _endedBy) => {
+          setGameActive(false)
+          setBalls(prev => prev.map(b => ({ ...b, claimed: true })))
+          setStatus('Game ended!')
           fetchBalance()
         })
       } catch (err) {
@@ -681,6 +748,50 @@ function BallGame() {
     }
   }
 
+  const callRegenerateBalls = async () => {
+    setLoading(true)
+    fallingStartRef.current = Date.now()
+    setIsFalling(true)
+    setStatus('Balls falling...')
+
+    try {
+      if (mode === 'auto' || mode === 'burner') {
+        const data = BALLGAME_IFACE.encodeFunctionData('regenerateBalls')
+        await sendRawTx('regenerateBalls()', data, 1000000n)
+      } else {
+        await sendMetamaskTx('regenerateBalls()', (c) => c.regenerateBalls())
+      }
+      setStatus('Generating new balls...')
+    } catch (err) {
+      pendingTxRef.current = null
+      setIsFalling(false)
+      fallingStartRef.current = 0
+      setStatus(`regenerateBalls() failed: ${err}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const callEndGame = async () => {
+    setLoading(true)
+    try {
+      if (mode === 'auto' || mode === 'burner') {
+        const data = BALLGAME_IFACE.encodeFunctionData('endGame')
+        await sendRawTx('endGame()', data, 300000n)
+      } else {
+        await sendMetamaskTx('endGame()', (c) => c.endGame())
+      }
+      setGameActive(false)
+      setBalls(prev => prev.map(b => ({ ...b, claimed: true })))
+      setStatus('Game ended!')
+    } catch (err) {
+      pendingTxRef.current = null
+      setStatus(`endGame() failed: ${err}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const claimingRef = useRef<Set<number>>(new Set())
 
   const callClaimBall = async (index: number) => {
@@ -733,6 +844,8 @@ function BallGame() {
   const [animOffset, setAnimOffset] = useState<{ dx: number; dy: number }[]>([])
   const animRef = useRef<number>(0)
 
+  const fallingStartRef = useRef<number>(0)
+
   useEffect(() => {
     if (balls.length === 0 || !gameActive) {
       setAnimOffset([])
@@ -740,8 +853,30 @@ function BallGame() {
       return
     }
 
+    if (isFalling && fallingStartRef.current === 0) {
+      fallingStartRef.current = Date.now()
+    }
+    if (!isFalling) {
+      fallingStartRef.current = 0
+    }
+
     const animate = () => {
-      const t = (Date.now() / 1000 + clockOffset) - gameStartTime
+      if (isFalling) {
+        const elapsed = (Date.now() - fallingStartRef.current) / 1000
+        const offsets = balls.map((ball, i) => {
+          const delay = (i % 5) * 0.08
+          const t = Math.max(0, elapsed - delay)
+          const gravity = 200
+          const fallDist = 0.5 * gravity * t * t
+          const dy = Math.min(fallDist, 120 - ball.y)
+          return { dx: 0, dy }
+        })
+        setAnimOffset(offsets)
+        animRef.current = requestAnimationFrame(animate)
+        return
+      }
+
+      const t = ((Date.now() + clockOffsetMs) / 1000) - gameStartTime
 
       const offsets = balls.map((ball, i) => {
         const cycleDuration = 3.0 + (i % 4) * 0.5
@@ -765,7 +900,7 @@ function BallGame() {
 
     animRef.current = requestAnimationFrame(animate)
     return () => cancelAnimationFrame(animRef.current)
-  }, [balls, gameActive, gameStartTime])
+  }, [balls, gameActive, gameStartTime, isFalling])
 
   return (
     <div
@@ -857,12 +992,32 @@ function BallGame() {
               {gameActive && ' (active)'}
               {gameId > 0 && !gameActive && ' (finished)'}
             </span>
-            <button
-              onClick={callStartGame}
-              disabled={loading || !isConnected || !hasBalance || gameActive}
-            >
-              {gameActive ? 'Game in Progress' : 'Start New Game'}
-            </button>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button
+                onClick={callStartGame}
+                disabled={loading || !isConnected || !hasBalance || gameActive}
+              >
+                {gameActive ? 'Game in Progress' : 'Start New Game'}
+              </button>
+              {gameActive && (
+                <button
+                  onClick={callRegenerateBalls}
+                  disabled={loading || !isConnected || !hasBalance || isFalling}
+                  style={{ backgroundColor: '#8b5cf6', borderColor: '#7c3aed' }}
+                >
+                  {isFalling ? 'Regenerating...' : 'New Balls'}
+                </button>
+              )}
+              {gameActive && (
+                <button
+                  onClick={callEndGame}
+                  disabled={loading || !isConnected || !hasBalance}
+                  style={{ backgroundColor: '#ef4444', borderColor: '#dc2626' }}
+                >
+                  End Game
+                </button>
+              )}
+            </div>
           </div>
         )}
 
