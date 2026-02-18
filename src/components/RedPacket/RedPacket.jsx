@@ -1,44 +1,57 @@
 import { useState, useEffect, useRef } from 'react'
-import redPacketImg from '../assets/red-packet.png'
-import redPacketOpenImg from '../assets/red-packet-open.png'
+import redPacketImg from '../../assets/red-packet.png'
+import redPacketOpenImg from '../../assets/red-packet-open.png'
+
+const AMOUNT = '$15.50'
 
 const COLORS = ['#FFD700', '#FF4444', '#FF9900', '#FF6B6B', '#FFF176', '#FF80AB', '#69F0AE', '#40C4FF']
 
-function randomBetween(a: number, b: number) {
+function randomBetween(a, b) {
   return a + Math.random() * (b - a)
 }
 
-interface LeaderboardEntry {
-  address: string
-  score: number
+function Ribbon({ id }) {
+  const style = {
+    position: 'fixed',
+    left: `${randomBetween(5, 95)}vw`,
+    top: `-${randomBetween(10, 30)}px`,
+    width: `${randomBetween(8, 16)}px`,
+    height: `${randomBetween(20, 40)}px`,
+    background: COLORS[Math.floor(Math.random() * COLORS.length)],
+    borderRadius: '3px',
+    opacity: 1,
+    animation: `ribbonFall ${randomBetween(1.4, 2.8)}s ease-in ${randomBetween(0, 0.8)}s forwards`,
+    transform: `rotate(${randomBetween(-45, 45)}deg)`,
+    zIndex: 50,
+    pointerEvents: 'none',
+  }
+  return <div key={id} style={style} />
 }
 
-function calculatePrize(leaderboard: LeaderboardEntry[], myAddress: string): number {
-  const rank = leaderboard.findIndex(e => e.address.toLowerCase() === myAddress.toLowerCase()) + 1
-  if (rank === 1) return 10
-  if (rank === 2) return 2
-  if (rank === 3) return 1
-  const numParticipants = leaderboard.length
-  if (numParticipants <= 0) return 0
-  return Math.min(7 / numParticipants, 0.5)
+function CircleRibbon({ id }) {
+  const style = {
+    position: 'fixed',
+    left: `${randomBetween(5, 95)}vw`,
+    top: `-${randomBetween(10, 30)}px`,
+    width: `${randomBetween(8, 14)}px`,
+    height: `${randomBetween(8, 14)}px`,
+    background: COLORS[Math.floor(Math.random() * COLORS.length)],
+    borderRadius: '50%',
+    opacity: 1,
+    animation: `ribbonFall ${randomBetween(1.6, 3.0)}s ease-in ${randomBetween(0, 1.0)}s forwards`,
+    zIndex: 50,
+    pointerEvents: 'none',
+  }
+  return <div key={id} style={style} />
 }
 
-interface RewardProps {
-  leaderboard: LeaderboardEntry[]
-  myAddress: string
-  onExportWallet: () => void
-}
-
-export default function Reward({ leaderboard, myAddress, onExportWallet }: RewardProps) {
+export default function RedPacket() {
   const [opened, setOpened] = useState(false)
   const [showAmount, setShowAmount] = useState(false)
-  const [ribbons, setRibbons] = useState<{ id: string }[]>([])
-  const [circles, setCircles] = useState<{ id: string }[]>([])
+  const [ribbons, setRibbons] = useState([])
+  const [circles, setCircles] = useState([])
   const [shake, setShake] = useState(false)
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  const prize = calculatePrize(leaderboard, myAddress)
-  const myRank = leaderboard.findIndex(e => e.address.toLowerCase() === myAddress.toLowerCase()) + 1
+  const intervalRef = useRef(null)
 
   function handleOpen() {
     if (opened) return
@@ -57,11 +70,12 @@ export default function Reward({ leaderboard, myAddress, onExportWallet }: Rewar
     setRibbons(Array.from({ length: ribbonCount }, (_, i) => ({ id: `r-${Date.now()}-${i}` })))
     setCircles(Array.from({ length: circleCount }, (_, i) => ({ id: `c-${Date.now()}-${i}` })))
 
+    // Keep spawning waves
     let wave = 0
     intervalRef.current = setInterval(() => {
       wave++
       if (wave >= 3) {
-        if (intervalRef.current) clearInterval(intervalRef.current)
+        clearInterval(intervalRef.current)
         return
       }
       setRibbons(prev => [
@@ -75,15 +89,12 @@ export default function Reward({ leaderboard, myAddress, onExportWallet }: Rewar
     }, 700)
   }
 
-  useEffect(() => () => {
-    if (intervalRef.current) clearInterval(intervalRef.current)
-  }, [])
+  useEffect(() => () => clearInterval(intervalRef.current), [])
 
   return (
     <div
       style={{
         minHeight: '100vh',
-        width: '100vw',
         background: 'linear-gradient(160deg, #1a0000 0%, #8B0000 50%, #3a0000 100%)',
         display: 'flex',
         flexDirection: 'column',
@@ -112,6 +123,10 @@ export default function Reward({ leaderboard, myAddress, onExportWallet }: Rewar
           60%  { transform: scale(1.15) translateY(-8px); }
           100% { opacity: 1; transform: scale(1) translateY(0); }
         }
+        @keyframes glow {
+          0%,100% { box-shadow: 0 0 18px 4px rgba(255,215,0,0.7); }
+          50%      { box-shadow: 0 0 32px 10px rgba(255,215,0,1); }
+        }
         @keyframes buttonPulse {
           0%,100% { transform: translate(-50%, -50%) scale(1);   box-shadow: 0 0 10px 2px rgba(255,215,0,0.8); }
           50%      { transform: translate(-50%, -50%) scale(1.07); box-shadow: 0 0 18px 5px rgba(255,215,0,1); }
@@ -127,43 +142,8 @@ export default function Reward({ leaderboard, myAddress, onExportWallet }: Rewar
       `}</style>
 
       {/* Ribbon particles */}
-      {ribbons.map(r => (
-        <div
-          key={r.id}
-          style={{
-            position: 'fixed',
-            left: `${randomBetween(5, 95)}vw`,
-            top: `-${randomBetween(10, 30)}px`,
-            width: `${randomBetween(8, 16)}px`,
-            height: `${randomBetween(20, 40)}px`,
-            background: COLORS[Math.floor(Math.random() * COLORS.length)],
-            borderRadius: '3px',
-            opacity: 1,
-            animation: `ribbonFall ${randomBetween(1.4, 2.8)}s ease-in ${randomBetween(0, 0.8)}s forwards`,
-            transform: `rotate(${randomBetween(-45, 45)}deg)`,
-            zIndex: 50,
-            pointerEvents: 'none',
-          }}
-        />
-      ))}
-      {circles.map(c => (
-        <div
-          key={c.id}
-          style={{
-            position: 'fixed',
-            left: `${randomBetween(5, 95)}vw`,
-            top: `-${randomBetween(10, 30)}px`,
-            width: `${randomBetween(8, 14)}px`,
-            height: `${randomBetween(8, 14)}px`,
-            background: COLORS[Math.floor(Math.random() * COLORS.length)],
-            borderRadius: '50%',
-            opacity: 1,
-            animation: `ribbonFall ${randomBetween(1.6, 3.0)}s ease-in ${randomBetween(0, 1.0)}s forwards`,
-            zIndex: 50,
-            pointerEvents: 'none',
-          }}
-        />
-      ))}
+      {ribbons.map(r => <Ribbon key={r.id} id={r.id} />)}
+      {circles.map(c => <CircleRibbon key={c.id} id={c.id} />)}
 
       {/* Title */}
       <h1
@@ -175,26 +155,10 @@ export default function Reward({ leaderboard, myAddress, onExportWallet }: Rewar
           marginBottom: '2rem',
           textShadow: '0 0 16px rgba(255,215,0,0.6)',
           fontFamily: 'system-ui, sans-serif',
-          textAlign: 'center',
         }}
       >
-        {opened ? 'Congratulations!' : 'You earned a reward!'}
+        {opened ? '🎉 Congratulations! 🎉' : '✨ You received a Red Packet! ✨'}
       </h1>
-
-      {/* Rank badge */}
-      {myRank > 0 && (
-        <div
-          style={{
-            color: 'rgba(255,215,0,0.7)',
-            fontSize: '0.9rem',
-            marginBottom: '1.5rem',
-            fontFamily: 'system-ui, sans-serif',
-            letterSpacing: '0.08em',
-          }}
-        >
-          Rank #{myRank} of {leaderboard.length}
-        </div>
-      )}
 
       {/* Packet wrapper */}
       <div
@@ -220,13 +184,14 @@ export default function Reward({ leaderboard, myAddress, onExportWallet }: Rewar
           }}
         />
 
-        {/* Open button */}
+        {/* Yellow open button — only show when not opened */}
         {!opened && (
           <button
             style={{
               position: 'absolute',
               top: '30%',
               left: '52.5%',
+              /* transform lives inside buttonPulse so we don't fight the animation */
               transform: 'translate(-50%, -50%)',
               background: 'linear-gradient(135deg, #FFE566 0%, #FFD700 50%, #FFA800 100%)',
               border: 'none',
@@ -272,7 +237,7 @@ export default function Reward({ leaderboard, myAddress, onExportWallet }: Rewar
               lineHeight: 1,
             }}
           >
-            ${prize.toFixed(2)}
+            {AMOUNT}
           </div>
           <div
             style={{
@@ -283,29 +248,8 @@ export default function Reward({ leaderboard, myAddress, onExportWallet }: Rewar
               letterSpacing: '0.08em',
             }}
           >
-            USDC
+            MON
           </div>
-
-          {/* Export wallet button */}
-          <button
-            onClick={onExportWallet}
-            style={{
-              marginTop: '1.5rem',
-              background: 'linear-gradient(135deg, #FFE566 0%, #FFD700 50%, #FFA800 100%)',
-              border: 'none',
-              borderRadius: '16px',
-              padding: '12px 32px',
-              fontSize: '0.95rem',
-              fontWeight: 800,
-              color: '#8B0000',
-              cursor: 'pointer',
-              letterSpacing: '0.05em',
-              fontFamily: 'system-ui, sans-serif',
-              boxShadow: '0 0 16px rgba(255,215,0,0.4)',
-            }}
-          >
-            EXPORT WALLET TO CLAIM
-          </button>
         </div>
       )}
 
