@@ -4,6 +4,15 @@
 @source '../node_modules/@heroui/theme/dist/**/*.{js,ts,jsx,tsx}';
 @custom-variant dark (&:is(.dark *));
 
+@font-face {
+  font-family: 'Britti Sans';
+  src: url('https://db.onlinewebfonts.com/t/0c5cf33ae9df16a2997f564c68034660.woff2') format('woff2'),
+       url('https://db.onlinewebfonts.com/t/0c5cf33ae9df16a2997f564c68034660.woff') format('woff');
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -15,6 +24,7 @@ html, body, #root {
 }
 
 body {
+  font-family: 'Inter', sans-serif;
   overflow: hidden;
   background: #0a0a1a;
 }

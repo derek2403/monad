@@ -11,11 +11,13 @@
   },
   "dependencies": {
     "@heroui/react": "^2.8.9",
+    "@types/three": "^0.182.0",
     "ethers": "^6.16.0",
     "framer-motion": "^12.34.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "react-router-dom": "^7.13.0"
+    "react-router-dom": "^7.13.0",
+    "three": "^0.182.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
