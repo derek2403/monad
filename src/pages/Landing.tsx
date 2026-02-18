@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Wallet, JsonRpcProvider } from 'ethers'
+import { Wallet, JsonRpcProvider, formatEther } from 'ethers'
 import {
   Button,
   Modal,
@@ -7,11 +7,10 @@ import {
   ModalHeader,
   ModalBody,
   ModalFooter,
-  Input,
-  Checkbox,
   useDisclosure,
 } from '@heroui/react'
 import Ballpit from '../components/Ballpit'
+import WalletModal from '../components/WalletModal'
 
 const STORAGE_KEY = 'monad-ballgame-burner-key'
 const MONAD_RPC_URL = 'https://monad-testnet.g.alchemy.com/v2/6U7t79S89NhHIspqDQ7oKGRWp5ZOfsNj'
@@ -32,14 +31,13 @@ function createWallet(): { address: string; privateKey: string } {
 
 interface LandingProps {
   onAdmin: () => void
+  onPlay: () => void
 }
 
-export default function Landing({ onAdmin }: LandingProps) {
+export default function Landing({ onAdmin, onPlay }: LandingProps) {
   const [wallet, setWallet] = useState<{ address: string; privateKey: string } | null>(null)
+  const [balance, setBalance] = useState<string | null>(null)
   const { isOpen, onOpen, onOpenChange } = useDisclosure()
-  const [showPrivateKey, setShowPrivateKey] = useState(false)
-  const [storedSafely, setStoredSafely] = useState(false)
-  const [understandPrizes, setUnderstandPrizes] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [countdown, setCountdown] = useState(3)
@@ -49,16 +47,26 @@ export default function Landing({ onAdmin }: LandingProps) {
     if (existing) setWallet(existing)
   }, [])
 
+  // Fetch balance
+  useEffect(() => {
+    if (!wallet) return
+    const fetch = async () => {
+      try {
+        const bal = await rpcProvider.getBalance(wallet.address)
+        setBalance(formatEther(bal))
+      } catch { /* ignore */ }
+    }
+    fetch()
+    const id = setInterval(fetch, 5000)
+    return () => clearInterval(id)
+  }, [wallet])
+
   const handlePlay = () => {
     if (!wallet) {
       const w = createWallet()
       setWallet(w)
     }
     onOpen()
-  }
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text)
   }
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -98,9 +106,6 @@ export default function Landing({ onAdmin }: LandingProps) {
   const handleConfirmGenerate = () => {
     const w = createWallet()
     setWallet(w)
-    setStoredSafely(false)
-    setUnderstandPrizes(false)
-    setShowPrivateKey(false)
     setShowConfirm(false)
   }
 
@@ -178,107 +183,15 @@ export default function Landing({ onAdmin }: LandingProps) {
         </button>
       </div>
 
-      {/* Wallet Modal */}
-      <Modal isOpen={isOpen} onOpenChange={onOpenChange}>
-        <ModalContent>
-          {() => (
-            <>
-              <ModalHeader className="flex flex-col gap-1" style={{ fontFamily: "'Britti Sans', sans-serif" }}>
-                Your Burner Wallet
-                <span className="text-small font-normal text-default-500" style={{ fontFamily: "'Inter', sans-serif" }}>It will be prefunded, just enjoy the game!</span>
-              </ModalHeader>
-              <ModalBody>
-                <div className="flex flex-col gap-4">
-                  <Input
-                    isReadOnly
-                    label="Wallet Address"
-                    value={wallet?.address ?? ''}
-                    classNames={{ input: "font-mono", label: "font-sans" }}
-                    style={{ fontFamily: "'Roboto Mono', monospace" }}
-                    endContent={
-                      <button
-                        type="button"
-                        className="focus:outline-none"
-                        onClick={() => copyToClipboard(wallet?.address ?? '')}
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-default-400 hover:text-default-600"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
-                      </button>
-                    }
-                  />
-
-                  <Input
-                    isReadOnly
-                    label="Private Key"
-                    value={wallet?.privateKey ?? ''}
-                    type={showPrivateKey ? 'text' : 'password'}
-                    classNames={{ input: "font-mono", label: "font-sans" }}
-                    style={{ fontFamily: "'Roboto Mono', monospace" }}
-                    endContent={
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          className="focus:outline-none"
-                          onClick={() => setShowPrivateKey(!showPrivateKey)}
-                        >
-                          {showPrivateKey ? (
-                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-default-400 hover:text-default-600"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" x2="23" y1="1" y2="23"/></svg>
-                          ) : (
-                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-default-400 hover:text-default-600"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          className="focus:outline-none"
-                          onClick={() => copyToClipboard(wallet?.privateKey ?? '')}
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-default-400 hover:text-default-600"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
-                        </button>
-                      </div>
-                    }
-                  />
-
-                  <Checkbox
-                    isSelected={storedSafely}
-                    onValueChange={setStoredSafely}
-                    classNames={{ label: 'text-small' }}
-                    style={{ fontFamily: "'Inter', sans-serif" }}
-                  >
-                    I have stored my private key safely
-                  </Checkbox>
-
-                  <Checkbox
-                    isSelected={understandPrizes}
-                    onValueChange={setUnderstandPrizes}
-                    classNames={{ label: 'text-small' }}
-                    style={{ fontFamily: "'Inter', sans-serif" }}
-                  >
-                    I understand that prizes will be sent to this burner wallet, so I will keep it safely
-                  </Checkbox>
-                </div>
-              </ModalBody>
-              <ModalFooter>
-                <Button
-                  className="bg-red-500 text-white"
-                  style={{ fontFamily: "'Roboto Mono', monospace" }}
-                  onPress={() => setShowConfirm(true)}
-                >
-                  Create New Wallet
-                </Button>
-                <Button
-                  color="primary"
-                  isDisabled={!storedSafely || !understandPrizes}
-                  style={{ fontFamily: "'Roboto Mono', monospace" }}
-                  onPress={() => {
-                    // TODO: proceed to game
-                  }}
-                >
-                  Continue
-                </Button>
-              </ModalFooter>
-            </>
-          )}
-        </ModalContent>
-      </Modal>
+      {/* Wallet Modal (with checkboxes) */}
+      <WalletModal
+        wallet={wallet}
+        isOpen={isOpen}
+        onOpenChange={onOpenChange}
+        showCheckboxes
+        onCreateNewWallet={() => setShowConfirm(true)}
+        onContinue={onPlay}
+      />
 
       {/* Confirm New Wallet Modal */}
       <Modal isOpen={showConfirm} onOpenChange={(open) => { if (!open) handleBackFromConfirm() }}>

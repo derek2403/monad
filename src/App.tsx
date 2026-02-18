@@ -18,7 +18,12 @@ interface LeaderboardEntry {
 function getInitialPage(): Page {
   const path = window.location.pathname
   if (path === '/admin') return 'admin'
+  if (path === '/games') return 'lobby'
   return 'landing'
+}
+
+function navigateTo(path: string) {
+  window.history.pushState(null, '', path)
 }
 
 function App() {
@@ -51,6 +56,7 @@ function App() {
   }
 
   const handleDone = () => {
+    navigateTo('/')
     setPage('landing')
   }
 
@@ -58,7 +64,7 @@ function App() {
 
   switch (page) {
     case 'landing':
-      return <Landing onAdmin={handleAdmin} />
+      return <Landing onAdmin={handleAdmin} onPlay={() => { navigateTo('/games'); setPage('lobby') }} />
     case 'lobby':
       return <Lobby onGameStart={handleGameStart} />
     case 'game':
@@ -85,7 +91,7 @@ function App() {
     case 'admin':
       return <Admin onBack={handleDone} />
     default:
-      return <Landing onAdmin={handleAdmin} />
+      return <Landing onAdmin={handleAdmin} onPlay={() => { navigateTo('/games'); setPage('lobby') }} />
   }
 }
 

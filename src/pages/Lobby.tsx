@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Wallet, JsonRpcProvider, formatEther, Contract, WebSocketProvider } from 'ethers'
+import WalletChip from '../components/WalletChip'
+import WalletModal from '../components/WalletModal'
 
 const MONAD_RPC_URL = 'https://monad-testnet.g.alchemy.com/v2/6U7t79S89NhHIspqDQ7oKGRWp5ZOfsNj'
 const MONAD_WS_URL = 'wss://monad-testnet.g.alchemy.com/v2/6U7t79S89NhHIspqDQ7oKGRWp5ZOfsNj'
@@ -64,6 +66,7 @@ export default function Lobby({ onGameStart }: LobbyProps) {
   const [balance, setBalance] = useState<string | null>(null)
   const [status, setStatus] = useState('Creating your burner wallet...')
   const [waitingForGame, setWaitingForGame] = useState(false)
+  const [walletModalOpen, setWalletModalOpen] = useState(false)
 
   // Create or load burner wallet on mount
   useEffect(() => {
@@ -107,7 +110,7 @@ export default function Lobby({ onGameStart }: LobbyProps) {
             const bal = await rpcProvider.getBalance(w.address)
             if (bal > 0n) {
               setBalance(formatEther(bal))
-              setStatus('Wallet funded! Waiting for admin to start game...')
+              setStatus('')
               break
             }
           }
@@ -171,8 +174,6 @@ export default function Lobby({ onGameStart }: LobbyProps) {
     }
   }, [wallet, onGameStart])
 
-  const shortAddr = wallet ? `${wallet.address.slice(0, 6)}...${wallet.address.slice(-4)}` : '...'
-
   return (
     <div style={{
       minHeight: '100vh',
@@ -198,6 +199,11 @@ export default function Lobby({ onGameStart }: LobbyProps) {
         .rule-row:nth-child(1) { animation-delay: 0.05s; }
         .rule-row:nth-child(2) { animation-delay: 0.15s; }
         .rule-row:nth-child(3) { animation-delay: 0.25s; }
+        @keyframes spin {
+          0%   { transform: rotate(0deg); }
+          25%  { transform: rotate(90deg); }
+          100% { transform: rotate(90deg); }
+        }
       `}</style>
 
       {/* ── LEFT PANEL ── */}
@@ -210,29 +216,9 @@ export default function Lobby({ onGameStart }: LobbyProps) {
         position: 'relative',
         overflow: 'auto',
       }}>
-        {/* Wallet pill — top right */}
-        <div style={{ position: 'absolute', top: '1.5rem', right: '1.5rem' }}>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            background: 'rgba(255,255,255,0.92)',
-            border: '1px solid rgba(0,0,0,0.08)',
-            borderRadius: '999px',
-            padding: '6px 14px 6px 10px',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-            fontSize: '0.85rem',
-            fontWeight: 700,
-            color: '#111',
-            fontFamily: 'monospace',
-          }}>
-            <span style={{
-              width: 8, height: 8, borderRadius: '50%',
-              background: balance && parseFloat(balance) > 0 ? '#22c55e' : '#eab308',
-              display: 'inline-block',
-            }} />
-            {shortAddr}
-          </div>
+        {/* Wallet chip — top right */}
+        <div style={{ position: 'absolute', top: '1.5rem', right: '1.5rem', zIndex: 20 }}>
+          <WalletChip address={wallet?.address ?? ''} onPress={() => setWalletModalOpen(true)} />
         </div>
 
         <p style={{ fontFamily: 'monospace', fontSize: '0.75rem', letterSpacing: '0.18em', color: '#9ca3af', marginBottom: '1.2rem' }}>
@@ -276,49 +262,23 @@ export default function Lobby({ onGameStart }: LobbyProps) {
           ))}
         </div>
 
-        {/* Wallet info card */}
-        <div style={{
-          background: '#f9fafb',
-          border: '1px solid #e5e7eb',
-          borderRadius: '16px',
-          padding: '1.2rem 1.4rem',
-          marginBottom: '1rem',
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
-            <span style={{ fontFamily: 'monospace', fontSize: '0.7rem', letterSpacing: '0.15em', color: '#9ca3af' }}>
-              // BURNER WALLET
-            </span>
-            <span style={{
-              fontFamily: 'monospace', fontSize: '0.85rem', fontWeight: 700,
-              color: balance && parseFloat(balance) > 0 ? '#16a34a' : '#9ca3af',
-            }}>
-              {balance ? `${parseFloat(balance).toFixed(4)} MON` : '...'}
+        {/* Waiting for game */}
+        {waitingForGame && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginTop: '0.5rem' }}>
+            <img
+              src="/Logomark.svg"
+              alt="Loading"
+              style={{
+                width: 20,
+                height: 20,
+                animation: 'spin 2s linear infinite',
+              }}
+            />
+            <span style={{ color: '#6b7280', fontSize: '0.85rem', fontWeight: 600, fontFamily: "'Inter', sans-serif" }}>
+              Waiting for admin to start the game
             </span>
           </div>
-          <div style={{
-            fontFamily: 'monospace', fontSize: '0.75rem', color: '#374151',
-            background: '#f3f4f6', borderRadius: '8px', padding: '0.6rem 0.8rem',
-            wordBreak: 'break-all',
-          }}>
-            {wallet?.address ?? 'Loading...'}
-          </div>
-        </div>
-
-        {/* Status */}
-        <div style={{ textAlign: 'center' }}>
-          <p style={{ color: '#6b7280', fontSize: '0.85rem', margin: 0 }}>{status}</p>
-          {waitingForGame && (
-            <div style={{ marginTop: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-              <span style={{
-                width: 8, height: 8, borderRadius: '50%', background: '#eab308',
-                display: 'inline-block', animation: 'fadeUp 1s ease infinite alternate',
-              }} />
-              <span style={{ color: '#ca8a04', fontSize: '0.85rem', fontWeight: 600 }}>
-                Waiting for admin to start the game...
-              </span>
-            </div>
-          )}
-        </div>
+        )}
       </div>
 
       {/* ── RIGHT PANEL ── */}
@@ -431,6 +391,13 @@ export default function Lobby({ onGameStart }: LobbyProps) {
           </div>
         ))}
       </div>
+
+      {/* Wallet modal (no checkboxes) */}
+      <WalletModal
+        wallet={wallet ? { address: wallet.address, privateKey: wallet.privateKey } : null}
+        isOpen={walletModalOpen}
+        onOpenChange={setWalletModalOpen}
+      />
     </div>
   )
 }
