@@ -18,6 +18,7 @@ interface LeaderboardEntry {
 function getInitialPage(): Page {
   const path = window.location.pathname
   if (path === '/admin') return 'admin'
+  if (path === '/leaderboard') return 'leaderboard'
   return 'landing'
 }
 
