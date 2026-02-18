@@ -17,6 +17,44 @@ const BALLGAME_ABI = [
 
 const rpcProvider = new JsonRpcProvider(MONAD_RPC_URL)
 
+const BRACKET = 18
+
+const COINS = [
+  { icon: '◆', sub: 'MONAD', bg: '#836ef9', pts: '+3', x: 10, delay: 0,   dur: 2.9, size: 62 },
+  { icon: '₿', sub: 'BTC',   bg: '#F7931A', pts: '+1', x: 28, delay: 0.7, dur: 3.3, size: 52 },
+  { icon: 'Ξ', sub: 'ETH',   bg: '#627EEA', pts: '+1', x: 48, delay: 1.3, dur: 2.7, size: 52 },
+  { icon: '◆', sub: 'MONAD', bg: '#836ef9', pts: '+3', x: 68, delay: 0.3, dur: 3.1, size: 62 },
+  { icon: '✕', sub: 'FTX',   bg: '#ef4444', pts: '–5', x: 84, delay: 1.9, dur: 2.5, size: 48 },
+  { icon: '☽', sub: 'LUNA',  bg: '#ef4444', pts: '–5', x: 18, delay: 2.3, dur: 3.0, size: 48 },
+  { icon: '₿', sub: 'BTC',   bg: '#F7931A', pts: '+1', x: 58, delay: 0.5, dur: 2.8, size: 52 },
+  { icon: '◆', sub: 'MONAD', bg: '#836ef9', pts: '+3', x: 38, delay: 1.8, dur: 3.2, size: 62 },
+  { icon: 'Ξ', sub: 'ETH',   bg: '#627EEA', pts: '+1', x: 76, delay: 2.6, dur: 2.9, size: 52 },
+  { icon: '✕', sub: 'FTX',   bg: '#ef4444', pts: '–5', x: 5,  delay: 1.1, dur: 2.6, size: 48 },
+  { icon: '◆', sub: 'MONAD', bg: '#836ef9', pts: '+3', x: 91, delay: 0.9, dur: 3.4, size: 62 },
+  { icon: '₿', sub: 'BTC',   bg: '#F7931A', pts: '+1', x: 22, delay: 2.9, dur: 2.7, size: 52 },
+  { icon: '☽', sub: 'LUNA',  bg: '#ef4444', pts: '–5', x: 43, delay: 0.2, dur: 3.0, size: 48 },
+  { icon: 'Ξ', sub: 'ETH',   bg: '#627EEA', pts: '+1', x: 63, delay: 1.6, dur: 2.5, size: 52 },
+]
+
+function Corner({ top, left, right, bottom }: { top?: number; left?: number; right?: number; bottom?: number }) {
+  const style: React.CSSProperties = {
+    position: 'absolute',
+    width: 24, height: 24,
+    ...(top    != null ? { top }    : {}),
+    ...(left   != null ? { left }   : {}),
+    ...(right  != null ? { right }  : {}),
+    ...(bottom != null ? { bottom } : {}),
+  }
+  const h: React.CSSProperties = { position: 'absolute', height: 2, width: BRACKET, background: '#111' }
+  const v: React.CSSProperties = { position: 'absolute', width: 2, height: BRACKET, background: '#111' }
+  return (
+    <div style={style}>
+      <div style={{ ...h, top: 0, left: 0 }} />
+      <div style={{ ...v, top: 0, left: 0 }} />
+    </div>
+  )
+}
+
 interface LobbyProps {
   onGameStart: (wallet: Wallet) => void
 }
@@ -133,71 +171,265 @@ export default function Lobby({ onGameStart }: LobbyProps) {
     }
   }, [wallet, onGameStart])
 
-
+  const shortAddr = wallet ? `${wallet.address.slice(0, 6)}...${wallet.address.slice(-4)}` : '...'
 
   return (
-    <div className="relative w-screen h-screen bg-white overflow-hidden select-none flex">
-      {/* Left side: Lobby info */}
-      <div className="flex-1 flex flex-col items-center justify-center px-8">
-        <div className="max-w-md w-full flex flex-col items-center gap-6">
-          <h1 className="text-4xl font-bold font-mono text-center">
-            <span className="text-yellow-500">Game</span>{' '}
-            <span className="text-purple-500">Lobby</span>
-          </h1>
+    <div style={{
+      minHeight: '100vh',
+      width: '100vw',
+      background: '#fff',
+      display: 'grid',
+      gridTemplateColumns: '52% 48%',
+      fontFamily: 'system-ui, -apple-system, sans-serif',
+      overflow: 'hidden',
+    }}>
+      <style>{`
+        @keyframes coinFall {
+          0%   { transform: translateY(-90px) rotate(0deg) scale(0.8); opacity: 0; }
+          8%   { opacity: 1; }
+          88%  { opacity: 1; }
+          100% { transform: translateY(105vh) rotate(540deg) scale(1); opacity: 0; }
+        }
+        @keyframes fadeUp {
+          from { opacity: 0; transform: translateY(18px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        .rule-row { animation: fadeUp 0.5s ease both; }
+        .rule-row:nth-child(1) { animation-delay: 0.05s; }
+        .rule-row:nth-child(2) { animation-delay: 0.15s; }
+        .rule-row:nth-child(3) { animation-delay: 0.25s; }
+      `}</style>
 
-          {/* Wallet card */}
-          <div className="w-full bg-gray-50 border border-gray-200 rounded-2xl p-6">
-            <div className="text-[10px] font-semibold tracking-[0.18em] uppercase text-gray-500 mb-3">Your Burner Wallet</div>
-            <div className="text-gray-800 text-sm font-mono break-all bg-gray-100 rounded-lg p-3 mb-4">
-              {wallet?.address ?? 'Loading...'}
+      {/* ── LEFT PANEL ── */}
+      <div style={{
+        padding: '3rem 3.5rem',
+        borderRight: '1px solid #e5e7eb',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        position: 'relative',
+        overflow: 'auto',
+      }}>
+        {/* Wallet pill — top right */}
+        <div style={{ position: 'absolute', top: '1.5rem', right: '1.5rem' }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            background: 'rgba(255,255,255,0.92)',
+            border: '1px solid rgba(0,0,0,0.08)',
+            borderRadius: '999px',
+            padding: '6px 14px 6px 10px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+            fontSize: '0.85rem',
+            fontWeight: 700,
+            color: '#111',
+            fontFamily: 'monospace',
+          }}>
+            <span style={{
+              width: 8, height: 8, borderRadius: '50%',
+              background: balance && parseFloat(balance) > 0 ? '#22c55e' : '#eab308',
+              display: 'inline-block',
+            }} />
+            {shortAddr}
+          </div>
+        </div>
+
+        <p style={{ fontFamily: 'monospace', fontSize: '0.75rem', letterSpacing: '0.18em', color: '#9ca3af', marginBottom: '1.2rem' }}>
+          // GAME RULES
+        </p>
+
+        <h1 style={{ fontSize: '3.8rem', fontWeight: 900, lineHeight: 1.05, margin: '0 0 1.4rem', letterSpacing: '-0.04em', color: '#0a0a0a' }}>
+          Click & Win.
+        </h1>
+
+        <p style={{ color: '#6b7280', fontSize: '1rem', lineHeight: 1.75, margin: '0 0 2rem', maxWidth: '380px' }}>
+          Tap the right coins, rack up points, and walk away with real money. Fast, simple, addictive.
+        </p>
+
+        {/* Numbered rules */}
+        <div style={{ borderTop: '1px solid #e5e7eb', marginBottom: '2rem' }}>
+          {[
+            ['01', 'CLICK AS MANY COINS AS POSSIBLE'],
+            ['02', 'MORE COINS = MORE POINTS'],
+            ['03', 'MORE POINTS = MORE MONEY'],
+          ].map(([num, text]) => (
+            <div key={num} className="rule-row" style={{
+              display: 'flex', alignItems: 'center', gap: '1rem',
+              padding: '0.9rem 0', borderBottom: '1px solid #e5e7eb',
+            }}>
+              <span style={{ fontFamily: 'monospace', fontSize: '0.8rem', color: '#d1d5db', minWidth: '22px' }}>{num}</span>
+              <div style={{ flex: 1, height: '1px', background: '#e5e7eb' }} />
+              <span style={{ fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.1em', color: '#111' }}>{text}</span>
             </div>
-            <div className="flex justify-between items-center">
-              <span className="text-gray-500 text-xs">Balance</span>
-              <span className="text-green-600 font-mono font-bold text-lg">
-                {balance ? `${parseFloat(balance).toFixed(4)} MON` : '...'}
+          ))}
+        </div>
+
+        {/* Tips row */}
+        <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', marginBottom: '2rem' }}>
+          {['⚡ Click fast', '🚫 Avoid bad coins', '🤑 Earn money'].map(tip => (
+            <span key={tip} style={{
+              fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.06em',
+              background: '#0a0a0a', color: '#fff',
+              borderRadius: '999px', padding: '0.35rem 0.9rem',
+            }}>{tip}</span>
+          ))}
+        </div>
+
+        {/* Wallet info card */}
+        <div style={{
+          background: '#f9fafb',
+          border: '1px solid #e5e7eb',
+          borderRadius: '16px',
+          padding: '1.2rem 1.4rem',
+          marginBottom: '1rem',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
+            <span style={{ fontFamily: 'monospace', fontSize: '0.7rem', letterSpacing: '0.15em', color: '#9ca3af' }}>
+              // BURNER WALLET
+            </span>
+            <span style={{
+              fontFamily: 'monospace', fontSize: '0.85rem', fontWeight: 700,
+              color: balance && parseFloat(balance) > 0 ? '#16a34a' : '#9ca3af',
+            }}>
+              {balance ? `${parseFloat(balance).toFixed(4)} MON` : '...'}
+            </span>
+          </div>
+          <div style={{
+            fontFamily: 'monospace', fontSize: '0.75rem', color: '#374151',
+            background: '#f3f4f6', borderRadius: '8px', padding: '0.6rem 0.8rem',
+            wordBreak: 'break-all',
+          }}>
+            {wallet?.address ?? 'Loading...'}
+          </div>
+        </div>
+
+        {/* Status */}
+        <div style={{ textAlign: 'center' }}>
+          <p style={{ color: '#6b7280', fontSize: '0.85rem', margin: 0 }}>{status}</p>
+          {waitingForGame && (
+            <div style={{ marginTop: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+              <span style={{
+                width: 8, height: 8, borderRadius: '50%', background: '#eab308',
+                display: 'inline-block', animation: 'fadeUp 1s ease infinite alternate',
+              }} />
+              <span style={{ color: '#ca8a04', fontSize: '0.85rem', fontWeight: 600 }}>
+                Waiting for admin to start the game...
               </span>
             </div>
-          </div>
-
-          {/* Status */}
-          <div className="text-center">
-            <p className="text-gray-600 text-sm">{status}</p>
-            {waitingForGame && (
-              <div className="mt-4 flex items-center justify-center gap-2">
-                <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse" />
-                <span className="text-yellow-600 text-sm font-semibold">Waiting for admin to start the game...</span>
-              </div>
-            )}
-          </div>
+          )}
         </div>
       </div>
 
-      {/* Right side: Rules image */}
-      <div className="w-[400px] flex items-center justify-center p-8 border-l border-gray-200">
-        <div className="w-full h-full rounded-2xl overflow-hidden bg-gray-50 border border-gray-200 flex items-center justify-center">
-          <img
-            src="/rules.png"
-            alt="Game Rules"
-            className="w-full h-full object-contain p-4"
-            onError={(e) => {
-              const target = e.target as HTMLImageElement
-              target.style.display = 'none'
-              target.parentElement!.innerHTML = `
-                <div class="text-center p-8">
-                  <div class="text-2xl mb-4">📋</div>
-                  <h3 class="text-gray-800 font-bold text-lg mb-4">Game Rules</h3>
-                  <div class="text-gray-600 text-sm text-left space-y-2">
-                    <p>🔵 Normal balls = +1 point</p>
-                    <p>⭐ Special balls = +3 points</p>
-                    <p>💣 Bomb balls = -5 points</p>
-                    <p>⏱ Click fast to claim balls!</p>
-                    <p>🏆 Top scorers win prizes!</p>
-                  </div>
-                </div>
-              `
-            }}
-          />
+      {/* ── RIGHT PANEL ── */}
+      <div style={{
+        position: 'relative',
+        overflow: 'hidden',
+        background: '#fafafa',
+        backgroundImage: 'radial-gradient(circle, #d1d5db 1px, transparent 1px)',
+        backgroundSize: '26px 26px',
+      }}>
+        {/* Corner brackets */}
+        <Corner top={20} left={20} />
+        <div style={{ position: 'absolute', top: 20, right: 20, width: 24, height: 24 }}>
+          <div style={{ position: 'absolute', top: 0, right: 0, width: BRACKET, height: 2, background: '#111' }} />
+          <div style={{ position: 'absolute', top: 0, right: 0, width: 2, height: BRACKET, background: '#111' }} />
         </div>
+        <div style={{ position: 'absolute', bottom: 20, left: 20, width: 24, height: 24 }}>
+          <div style={{ position: 'absolute', bottom: 0, left: 0, width: BRACKET, height: 2, background: '#111' }} />
+          <div style={{ position: 'absolute', bottom: 0, left: 0, width: 2, height: BRACKET, background: '#111' }} />
+        </div>
+        <div style={{ position: 'absolute', bottom: 20, right: 20, width: 24, height: 24 }}>
+          <div style={{ position: 'absolute', bottom: 0, right: 0, width: BRACKET, height: 2, background: '#111' }} />
+          <div style={{ position: 'absolute', bottom: 0, right: 0, width: 2, height: BRACKET, background: '#111' }} />
+        </div>
+
+        {/* Labels */}
+        <p style={{ position: 'absolute', top: 24, right: 50, fontFamily: 'monospace', fontSize: '0.7rem', letterSpacing: '0.12em', color: '#9ca3af', margin: 0 }}>
+          // 001
+        </p>
+        <p style={{ position: 'absolute', bottom: 24, left: 50, fontFamily: 'monospace', fontSize: '0.7rem', letterSpacing: '0.12em', color: '#9ca3af', margin: 0 }}>
+          // COLLECT
+        </p>
+
+        {/* Center glow blob */}
+        <div style={{
+          position: 'absolute',
+          top: '50%', left: '50%',
+          transform: 'translate(-50%, -50%)',
+          width: 240, height: 240,
+          background: 'radial-gradient(circle, rgba(131,110,249,0.15) 0%, transparent 70%)',
+          borderRadius: '50%',
+          pointerEvents: 'none',
+        }} />
+
+        {/* Points overlay card */}
+        <div style={{
+          position: 'absolute',
+          top: '50%', left: '50%',
+          transform: 'translate(-50%, -50%)',
+          zIndex: 10,
+          width: '80%',
+          background: 'rgba(255,255,255,0.72)',
+          backdropFilter: 'blur(14px)',
+          WebkitBackdropFilter: 'blur(14px)',
+          borderRadius: '20px',
+          border: '1px solid rgba(255,255,255,0.9)',
+          boxShadow: '0 8px 40px rgba(0,0,0,0.10)',
+          padding: '1.6rem 1.8rem',
+        }}>
+          <p style={{ fontFamily: 'monospace', fontSize: '0.72rem', letterSpacing: '0.18em', color: '#9ca3af', margin: '0 0 1rem' }}>
+            // POINTS SYSTEM
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+            {[
+              { coin: 'MONAD',      pts: '+ 3 pts', good: true,  dot: '#836ef9' },
+              { coin: 'BTC / ETH',  pts: '+ 1 pt',  good: true,  dot: '#F7931A' },
+              { coin: 'FTX / LUNA', pts: '– 5 pts', good: false, dot: '#ef4444' },
+            ].map(({ coin, pts, good, dot }) => (
+              <div key={coin} style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: '0.6rem 0.9rem',
+                background: good ? 'rgba(250,245,255,0.85)' : 'rgba(255,241,242,0.85)',
+                borderRadius: '10px',
+                border: `1px solid ${good ? '#e9d5ff' : '#fecdd3'}`,
+              }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 700, fontSize: '0.88rem' }}>
+                  <span style={{ width: 9, height: 9, borderRadius: '50%', background: dot, display: 'inline-block', flexShrink: 0 }} />
+                  {coin}
+                </span>
+                <span style={{ fontWeight: 800, fontSize: '0.88rem', color: good ? '#7c3aed' : '#dc2626', fontFamily: 'monospace' }}>
+                  {pts}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Falling coins */}
+        {COINS.map((c, i) => (
+          <div key={i} style={{
+            position: 'absolute',
+            left: `${c.x}%`,
+            top: 0,
+            width: c.size,
+            height: c.size,
+            borderRadius: '50%',
+            background: c.bg,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: `0 4px 20px ${c.bg}66`,
+            animation: `coinFall ${c.dur}s ease-in ${c.delay}s infinite`,
+            pointerEvents: 'none',
+            zIndex: 1,
+          }}>
+            <span style={{ fontSize: c.size * 0.34, lineHeight: 1, color: '#fff', fontWeight: 900 }}>{c.icon}</span>
+            <span style={{ fontSize: c.size * 0.16, color: 'rgba(255,255,255,0.85)', fontWeight: 700, letterSpacing: '0.04em', marginTop: 1 }}>{c.sub}</span>
+            <span style={{ fontSize: c.size * 0.17, color: '#fff', fontWeight: 900, fontFamily: 'monospace', marginTop: 1 }}>{c.pts}</span>
+          </div>
+        ))}
       </div>
     </div>
   )
