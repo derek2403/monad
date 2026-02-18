@@ -284,40 +284,26 @@ export default function Lobby({ onGameStart }: LobbyProps) {
           padding: '1.2rem 1.4rem',
           marginBottom: '1rem',
         }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
-            <span style={{ fontFamily: 'monospace', fontSize: '0.7rem', letterSpacing: '0.15em', color: '#9ca3af' }}>
-              // BURNER WALLET
-            </span>
-            <span style={{
-              fontFamily: 'monospace', fontSize: '0.85rem', fontWeight: 700,
-              color: balance && parseFloat(balance) > 0 ? '#16a34a' : '#9ca3af',
-            }}>
-              {balance ? `${parseFloat(balance).toFixed(4)} MON` : '...'}
-            </span>
-          </div>
-          <div style={{
-            fontFamily: 'monospace', fontSize: '0.75rem', color: '#374151',
-            background: '#f3f4f6', borderRadius: '8px', padding: '0.6rem 0.8rem',
-            wordBreak: 'break-all',
-          }}>
-            {wallet?.address ?? 'Loading...'}
-          </div>
+          <span style={{ fontFamily: 'monospace', fontSize: '0.7rem', letterSpacing: '0.15em', color: '#9ca3af', display: 'block', marginBottom: '0.5rem' }}>
+            // BURNER WALLET
+          </span>
+          <p style={{ fontSize: '0.9rem', color: '#374151', margin: '0 0 0.4rem', lineHeight: 1.5 }}>
+            A burner wallet has been generated for you.<br />
+            <span style={{ color: '#16a34a', fontWeight: 600 }}>No gas needed — all sponsored.</span> Have fun!
+          </p>
         </div>
 
         {/* Status */}
         <div style={{ textAlign: 'center' }}>
-          <p style={{ color: '#6b7280', fontSize: '0.85rem', margin: 0 }}>{status}</p>
-          {waitingForGame && (
-            <div style={{ marginTop: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-              <span style={{
-                width: 8, height: 8, borderRadius: '50%', background: '#eab308',
-                display: 'inline-block', animation: 'fadeUp 1s ease infinite alternate',
-              }} />
-              <span style={{ color: '#ca8a04', fontSize: '0.85rem', fontWeight: 600 }}>
-                Waiting for admin to start the game...
-              </span>
-            </div>
-          )}
+          <div style={{ marginTop: '0.4rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+            <span style={{
+              width: 8, height: 8, borderRadius: '50%', background: '#836ef9',
+              display: 'inline-block', animation: 'fadeUp 1s ease infinite alternate',
+            }} />
+            <span style={{ color: '#6b7280', fontSize: '0.85rem', fontWeight: 600 }}>
+              Game starting soon — read the rules on the right!
+            </span>
+          </div>
         </div>
       </div>
 
