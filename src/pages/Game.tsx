@@ -38,6 +38,17 @@ const BALL_TYPE_POINTS: Record<number, string> = {
   0: '+1', 1: '+3', 2: '-5',
 }
 
+// Icon mapping for ball types
+const NORMAL_ICONS = ['/icons/btc.png', '/icons/eth.png']
+const SPECIAL_ICONS = ['/icons/monad.png']
+const BOMB_ICONS = ['/icons/ftx.png', '/icons/terra.png']
+
+function getBallIcon(ballType: number, index: number): string {
+  if (ballType === 1) return SPECIAL_ICONS[0]
+  if (ballType === 2) return BOMB_ICONS[index % BOMB_ICONS.length]
+  return NORMAL_ICONS[index % NORMAL_ICONS.length]
+}
+
 interface BallState {
   x: number; y: number; ballType: number; claimed: boolean; claimedBy: string | null
 }
@@ -637,42 +648,57 @@ export default function Game({ wallet, onGameEnd }: GameProps) {
           const offset = animOffset[i] || { dx: 0, dy: 0 }
           const bx = ball.x + offset.dx
           const by = ball.y + offset.dy
-          const color = BALL_TYPE_COLORS[ball.ballType] ?? BALL_TYPE_COLORS[0]
           const isBomb = ball.ballType === 2
           const isSpecial = ball.ballType === 1
+          const iconSrc = getBallIcon(ball.ballType, i)
+          const size = isBomb ? 42 : isSpecial ? 40 : 36
           return (
             <button
               key={`${gameStartTime}-${i}`}
-              onClick={() => callClaimBall(i)}
+              onClick={() => {
+                // Optimistically hide the ball immediately (like Game.jsx)
+                setBalls(prev => {
+                  const updated = [...prev]
+                  if (updated[i]) updated[i] = { ...updated[i], claimed: true }
+                  return updated
+                })
+                callClaimBall(i)
+              }}
               style={{
                 position: 'absolute',
                 left: `${bx}%`,
                 top: `${by}%`,
                 transform: 'translate(-50%, -50%)',
-                width: isBomb ? '38px' : isSpecial ? '36px' : '32px',
-                height: isBomb ? '38px' : isSpecial ? '36px' : '32px',
+                width: `${size}px`,
+                height: `${size}px`,
                 borderRadius: '50%',
                 border: isSpecial ? '2px solid #fde047' : isBomb ? '2px solid #fca5a5' : '2px solid rgba(255,255,255,0.3)',
-                backgroundColor: color,
+                backgroundColor: 'transparent',
                 cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: isSpecial ? '0.85rem' : isBomb ? '0.9rem' : '0.7rem',
-                fontWeight: 'bold',
-                color: '#fff',
                 padding: 0,
+                overflow: 'hidden',
                 boxShadow: isSpecial
-                  ? '0 0 16px #eab30888, 0 0 30px #eab30844'
+                  ? '0 0 18px #eab308aa, 0 0 36px #eab30866, 0 0 60px #eab30833'
                   : isBomb
                     ? '0 0 16px #ef444488, 0 0 30px #ef444444'
-                    : `0 0 12px ${color}88`,
+                    : '0 0 10px rgba(255,255,255,0.3)',
                 touchAction: 'manipulation',
                 WebkitTapHighlightColor: 'transparent',
                 userSelect: 'none',
               }}
             >
-              {isBomb ? BALL_TYPE_POINTS[2] : isSpecial ? '*' : i}
+              <img
+                src={iconSrc}
+                alt=""
+                draggable={false}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  borderRadius: '50%',
+                  pointerEvents: 'none',
+                }}
+              />
             </button>
           )
         })}
