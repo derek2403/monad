@@ -19,6 +19,7 @@ function getInitialPage(): Page {
   const path = window.location.pathname
   if (path === '/admin') return 'admin'
   if (path === '/games') return 'lobby'
+  if (path === '/leaderboard') return 'leaderboard'
   return 'landing'
 }
 
